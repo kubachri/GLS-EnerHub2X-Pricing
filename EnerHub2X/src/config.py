@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 import os
 
-DEFAULT_DATA_FILE = os.path.join(os.getcwd(), "Data_MeOH_CO2_Liq.xlsx")
+DEFAULT_DATA_FILE = os.path.join(os.getcwd(), "Data_MeOH_UC.xlsx")
 
 @dataclass
 class ModelConfig:
