@@ -28,6 +28,7 @@ def parse_args():
     p.add_argument('--electricity_mandate', type=float, help="restricts electricity imports to a percent of consumption each hour")
     p.add_argument('--el_prod_to_grid', type=float, help="restricts electricity exports to a percent of generation each hour")
     p.add_argument('--multiple_scenarios', type=str, help="Run all Excel scenarios in a given folder (e.g. 'scenarios_multiple')")
+    p.add_argument('--data_file', type=str, help="Path to single Excel scenario file")
 
     return p.parse_args()
 
@@ -243,8 +244,13 @@ def main():
             green_electricity=args.green_electricity if args.green_electricity is not None else defaults.green_electricity,
             electricity_mandate=args.electricity_mandate if args.electricity_mandate is not None else defaults.electricity_mandate,
             el_prod_to_grid=args.el_prod_to_grid if args.el_prod_to_grid is not None else defaults.el_prod_to_grid,
+            data_file=args.data_file or defaults.data_file,
         )
-        run_model(cfg)
+
+        scenario_path = Path(cfg.data_file)
+        scenario_name = scenario_path.stem.removeprefix("Data_")
+
+        run_model(cfg, scenario_name=scenario_name)
 
 if __name__ == '__main__':
     model = main()

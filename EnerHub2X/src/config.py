@@ -2,6 +2,8 @@
 from dataclasses import dataclass
 import os
 
+DEFAULT_DATA_FILE = os.path.join(os.getcwd(), "Data_MeOH_CO2_Liq.xlsx")
+
 @dataclass
 class ModelConfig:
     test_mode:              bool    = False   # run a short “N_test” horizon?
@@ -12,7 +14,7 @@ class ModelConfig:
     green_electricity:      bool    = False
     electricity_mandate:    float   = 1.0 # it's the ratio of electricity imported/electricity used in EH (limits grid imports)
     el_prod_to_grid:        float   = 1.0 # it's the ratio of electricity exported/electricity produced in EH (limits grid exports)
-    data_file:              str     = None
+    data_file:              str     = DEFAULT_DATA_FILE
 
     @property
     def data_dir(self) -> str:
