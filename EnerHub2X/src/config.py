@@ -8,7 +8,7 @@ DEFAULT_DATA_FILE = os.path.join(os.getcwd(), "Data_MeOH_UC.xlsx")
 class ModelConfig:
     test_mode:              bool    = False   # run a short “N_test” horizon?
     n_test:                 int     = 168     # number of hours in test mode
-    penalty:                float   = 100000     # slack‐penalty in objective
+    penalty:                float   = 10**9     # slack‐penalty in objective
     demand_target:          bool    = True
     sensitivity:            bool    = False
     green_electricity:      bool    = False
