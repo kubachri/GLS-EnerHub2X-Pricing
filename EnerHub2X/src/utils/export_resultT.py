@@ -5,6 +5,7 @@ from pyomo.environ import value
 from pathlib import Path
 from src.config import ModelConfig
 from collections import defaultdict
+import re
 
 def export_results(model, cfg: ModelConfig, path: str = None):
     """
@@ -336,8 +337,13 @@ def export_results(model, cfg: ModelConfig, path: str = None):
 
     # === Export duals for all enforced fuel demands ===
     if hasattr(model, "TargetDemand") and hasattr(model, "DemandFuel"):
+        def sort_key(item):
+            step, _ = item
+            match = re.search(r'\d+', step)
+            return int(match.group()) if match else float('inf')
+
         dual_rows = []
-        for (step, af) in sorted(model.DemandFuel):
+        for (step, af) in sorted(model.DemandFuel, key=sort_key):
             constraint = model.TargetDemand[step, af]
             dual_val = model.dual.get(constraint, float("nan"))  # NaN if no dual
             dual_rows.append({
