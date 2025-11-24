@@ -77,14 +77,4 @@ def define_params(model, data, tech_df):
 
     model.WeekOfT = Param(model.T, initialize=data['WeekOfT'], within=model.Weeks)
 
-    # Get only steps relevant to this run, based on model.T
-    used_steps = sorted({model.WeekOfT[t] for t in model.T})
-
-    print("\n✅ Weekly Demand Targets (active for this run):\n")
-    fuels = sorted(set(f for (_, f) in model.DemandFuel))
-
-    for step in used_steps:
-        print(f"  {step}:")
-        for af in fuels:
-            if (step, af) in model.DemandTarget:
-                print(f"    - {af}: {value(model.DemandTarget[step, af]):.2f} tons")
+    print(f"Weekly Methanol Demand Target: {value(model.DemandTarget['Target1', 'DK1.Methanol']):.2f} tons\n")
