@@ -20,7 +20,21 @@ def export_inputs(model, cfg, path: str = None):
         out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    writer = pd.ExcelWriter(out, engine='xlsxwriter')
+    try:
+        writer = pd.ExcelWriter(out, engine='xlsxwriter')
+    except PermissionError:
+        for i in range(1, 100):
+            trial = out.with_name(f"{out.stem}({i}){out.suffix}")
+            try:
+                writer = pd.ExcelWriter(trial, engine='xlsxwriter')
+                print(f"⚠️  {out.name} is in use—trying {trial.name}")
+                out = trial  # Update the output path
+                break
+            except PermissionError:
+                continue
+        else:
+            raise PermissionError(f"Could not write to {out} or any fallback after 100 attempts.")
+
 
     sheet_data = {}
 
