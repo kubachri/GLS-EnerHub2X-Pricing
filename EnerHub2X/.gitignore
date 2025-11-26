@@ -17,7 +17,7 @@ results/results.xlsx
 
 # Excel result files
 *.xlsx
-results/
+EnerHub2X/results/
 
 
 #data
