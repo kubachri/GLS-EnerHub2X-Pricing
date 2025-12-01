@@ -22,6 +22,18 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
     solver.solve(base_model, tee=False)
     print("\n[INFO] Centralized baseline solve completed.\n")
 
+    # Extract centralized CO2 sales for comparison
+    q_central = {}
+    for t in base_model.T:
+        for (area, fuel) in base_model.saleE:
+            if fuel == co2_label:
+                q_central[(area,t)] = value(base_model.Sale[area,fuel,t])
+    print("[CHECK] Centralized CO2 sales:")
+    if not q_central:
+        print("[WARN] No CO2 sales found in centralized model.")
+    for key in q_central:
+        print(f"  {key}: {q_central[key]:.3f}")
+
     # Retrieve strategic suppliers
     strategic_suppliers = getattr(base_model, 'StrategicSuppliers', None)
     if not strategic_suppliers:
@@ -32,7 +44,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
 
     # Initialize current strategies (sales quantities)
     curr = _initialize_strategies(base_model, strategic_suppliers, tech_to_area, co2_label)
-    print(f"[INFO] Initial strategies extracted for {len(strategic_suppliers)} suppliers.")
+    print(f"\n[INFO] Initial strategies extracted for {len(strategic_suppliers)} suppliers.")
 
     # ------------------------------------------------------------
     # 2. BEST-RESPONSE ITERATION LOOP
@@ -56,6 +68,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
             # For simplicity, we just keep the original objective but let solver choose the best Sale for tech by not fixing its sale variables,
             # and ensure no other decision variables allow arbitrage. This is approximate but often works for simple cases.
             # Solve BR
+            # _define_strategic_objective(m, tech, strategic_suppliers, tech_to_area, curr, co2_label)
 
             # Solve the submodel profit maximization for this suplier i
             solver.solve(m, tee=False)
@@ -69,6 +82,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
         # Convergence test
         if max_change < tol:
             print(f"\n[INFO] Converged after {iteration} iterations (tol={tol}).\n")
+            print(curr)
             break
     else:
         print("[WARN] Max iterations reached without full convergence.\n")
@@ -88,6 +102,29 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
     final_solver.solve(final_model, tee=True)
 
     print("\n================= Cournot Loop Completed =================\n")
+    print(f"Converged after {iteration} iterations (tol={tol}).")
+
+    print("\n[CHECK] Comparing centralized vs strategic results...")
+
+    # Central model
+    base_model = silent_build_model(cfg)
+    solver.solve(base_model, tee=False)
+    q_central = {}
+    for (area, fuel) in base_model.saleE:
+        if fuel == co2_label:
+            q_central[(area,t)] = value(base_model.Sale[area,fuel,t])
+
+    # Strategic model
+    q_strat = {}
+    for (area, fuel) in final_model.saleE:
+        if fuel == co2_label:
+            q_strat[(area,t)] = value(final_model.Sale[area,fuel,t])
+
+    if not q_central:
+        print("[WARN] No CO2 sales found in centralized model for comparison.")
+    for key in q_central:
+        print(f"  {key}: central={q_central[key]:.3f}, strategic={q_strat[key]:.3f}, Δ={q_strat[key]-q_central[key]:.3e}")
+    
     return final_model, curr
 
 
@@ -102,8 +139,8 @@ def _initialize_strategies(model, suppliers, tech_to_area, co2_label):
         area = tech_to_area.get(tech)
         curr[tech] = {}
         for t in model.T:
-            idx = (area, co2_label, t)
-            curr[tech][t] = value(model.Sale[idx]) if idx in model.saleE else 0.0
+            idx = (area, co2_label)
+            curr[tech][t] = value(model.Sale[area, co2_label, t]) if idx in model.saleE else 0.0
     return curr
 
 
@@ -116,10 +153,41 @@ def _fix_competitor_sales(model, current_tech, suppliers, tech_to_area, curr, co
         if area_other is None:
             continue
         for t in model.T:
-            idx = (area_other, co2_label, t)
+            idx = (area_other, co2_label)
             if idx in model.saleE:
                 val = curr[other].get(t, 0.0)
-                model.Sale[idx].fix(val)
+                model.Sale[area_other, co2_label, t].fix(val)
+                
+
+def _define_strategic_objective(model, current_tech, suppliers, tech_to_area, curr, co2_label):
+    """Define the profit-maximizing objective for a strategic supplier."""
+    # Build competitor sales sum for each timestep
+    comp_sales = {t: sum(curr[other].get(t, 0.0)
+                        for other in suppliers if other != current_tech)
+                for t in model.T}
+
+    # Define temporary profit objective
+    profit_expr = 0
+    area = tech_to_area.get(current_tech)
+    for t in model.T:
+        idx = (area, co2_label)
+        if idx not in model.saleE:
+            continue
+        sale_var = model.Sale[area, co2_label, t]
+        a = value(model.a_co2[t])
+        b = value(model.b_co2[t])
+        # inverse demand: p = a - b*(q_i + q_-i)
+        price_expr = a - b * (comp_sales[t] + sale_var)
+        profit_expr += price_expr * sale_var
+        # optional: subtract linear cost approximation if available
+        # e.g., profit_expr -= m.cvar[tech] * sale_var  # if m.cvar exists
+
+    # Deactivate existing objective (keep reference if needed)
+    for obj in list(model.component_data_objects(Objective, active=True)):
+        obj.deactivate()
+
+    model.ProfitObj = Objective(expr=profit_expr, sense=maximize)
+    print(f"[DEBUG] Profit objective set for {current_tech}")
 
 
 def _update_strategy(model, tech, tech_to_area, curr, co2_label, damping):
@@ -127,10 +195,11 @@ def _update_strategy(model, tech, tech_to_area, curr, co2_label, damping):
     area = tech_to_area.get(tech)
     max_change = 0.0
     for t in model.T:
-        idx = (area, co2_label, t)
+        idx = (area, co2_label)
         if idx not in model.saleE:
+            # print(f"[WARN] No sale variable for {tech} at time {t}. Skipping update.")
             continue
-        new_val = value(model.Sale[idx])
+        new_val = value(model.Sale[area, co2_label, t])
         old_val = curr[tech].get(t, 0.0)
         updated = damping * new_val + (1 - damping) * old_val
         curr[tech][t] = updated
@@ -145,9 +214,9 @@ def _fix_all_sales(model, suppliers, tech_to_area, curr, co2_label):
         if area is None:
             continue
         for t in model.T:
-            idx = (area, co2_label, t)
+            idx = (area, co2_label)
             if idx in model.saleE:
-                model.Sale[idx].fix(curr[tech][t])
+                model.Sale[area, co2_label, t].fix(curr[tech][t])
 
 
 def silent_build_model(cfg):

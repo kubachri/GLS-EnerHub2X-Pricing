@@ -102,6 +102,9 @@ def load_data(cfg):
         if v != 0
     })
 
+    print("fuels:", fuels)
+    print("areas:", areas)
+
 
 
     # -----------------------
