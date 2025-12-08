@@ -39,3 +39,5 @@ model_iis.ilp
 
 apps
 src/utils/results_io.py
+
+*.pdf
