@@ -1,1 +1,2 @@
 *.pdf # if not already present
+.DS_Store
