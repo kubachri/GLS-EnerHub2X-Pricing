@@ -18,17 +18,16 @@ def apply_sensitivity_overrides(tech_df, data):
     # tech_df.at['CO2Liquefaction', 'Capacity'] = 3.188356164
     # tech_df.at['CO2Liquefaction', 'Capacity'] = 3.188356164
 
-    tech_df.at['CO2Compressor', 'Capacity'] = 3.188356164
-    tech_df.at['CO2Compressor', 'Capacity'] = 3.188356164
+    # tech_df.at['CO2Compressor', 'Capacity'] = 3.188356164
+    # tech_df.at['CO2Compressor', 'Capacity'] = 3.188356164
 
     # tech_df.at['H2Storage', 'Capacity'] = 5
     # tech_df.at['H2Storage', 'StorageCap'] = 5
     
-
-
-
-
-    
+    tech_df.at['ElectricStorage', 'Capacity'] = 44
+    tech_df.at['ElectricStorage', 'StorageCap'] = 44
+    tech_df.at['ElectricStorage', 'InitialVolume'] = 0
+        
     # tech_df.at['ElectricStorage', 'StorageCap'] = 10
     
     return tech_df, data
