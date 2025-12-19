@@ -17,8 +17,6 @@ results/results.xlsx
 
 # Excel result files
 *.xlsx
-EnerHub2X/results/
-
 
 #data
 inc_data
@@ -41,3 +39,9 @@ apps
 src/utils/results_io.py
 
 *.pdf
+
+# macOS junk
+.DS_Store
+
+# Generated results
+EnerHub2X/results/
