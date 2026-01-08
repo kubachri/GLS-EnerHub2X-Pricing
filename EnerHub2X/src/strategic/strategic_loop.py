@@ -3,6 +3,8 @@ from src.model.builder import build_model
 from src.config import ModelConfig
 import io
 from contextlib import redirect_stdout
+from src.strategic.submodel_biogas import build_biogas_model
+from src.strategic.submodel_methanol import build_methanol_model  # Assuming you implement this
 
 def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label='CO2'):
     """
@@ -16,73 +18,98 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
     # 1. INITIALIZATION PHASE
     # ------------------------------------------------------------
     print("[INFO] Building and solving initial centralized model...")
-    base_model = build_model(cfg)
+    base_model = silent_build_model(cfg)  # Use silent_build_model to avoid prints
     base_model.dual = Suffix(direction=Suffix.IMPORT)
     solver = SolverFactory('gurobi')
     solver.solve(base_model, tee=False)
     print("\n[INFO] Centralized baseline solve completed.\n")
 
-    # Extract centralized CO2 sales for comparison
-    q_central = {}
-    for t in base_model.T:
-        for (area, fuel) in base_model.saleE:
-            if fuel == co2_label:
-                q_central[(area,t)] = value(base_model.Sale[area,fuel,t])
-    print("[CHECK] Centralized CO2 sales:")
-    if not q_central:
-        print("[WARN] No CO2 sales found in centralized model.")
-    for key in q_central:
-        print(f"  {key}: {q_central[key]:.3f}")
+    # Extract CO2 comp use (demand) and duals for curve construction
+    co2_comp_use = {t: value(base_model.FuelUse['MethanolSynthesis', 'CO2Comp', t]) for t in base_model.T if ('MethanolSynthesis', 'CO2Comp', t) in base_model.FuelUse}
+    co2_duals = {t: base_model.dual.get(base_model.Balance['Skive', 'CO2', t], 0.0) if ('Skive', 'CO2', t) in base_model.Balance.index_set() else 0.0 for t in base_model.T} 
 
-    # Retrieve strategic suppliers
-    strategic_suppliers = getattr(base_model, 'StrategicSuppliers', None)
-    if not strategic_suppliers:
-        raise RuntimeError("No StrategicSuppliers found on model. Check sets.py or loader configuration.")
+    # Retrieve strategic actors (assume list of techs, e.g., ['BiogasUpgrade'])
+    strategic_suppliers = getattr(base_model, 'StrategicSuppliers', ['BiogasUpgrade'])
+    strategic_demanders = getattr(base_model, 'StrategicDemanders', ['MethanolSynthesis'])
 
     # Mapping tech -> area
     tech_to_area = {tech: area for (area, tech) in base_model.location}
 
-    # Initialize current strategies (sales quantities)
-    curr = _initialize_strategies(base_model, strategic_suppliers, tech_to_area, co2_label)
-    print(f"\n[INFO] Initial strategies extracted for {len(strategic_suppliers)} suppliers.")
+    # Initialize strategies using CO2 generation
+    # curr = _initialize_strategies(base_model, strategic_suppliers, tech_to_area, co2_label)
 
-    # ------------------------------------------------------------
+    curr = {}
+    for tech in strategic_suppliers:
+        curr[tech] = {}
+        for t in base_model.T:
+            # Use Generation for CO2-producing techs as proxy for sales
+            gen_key = (tech, 'CO2', t) if (tech, 'CO2') in base_model.f_out else None
+            curr[tech][t] = value(base_model.Generation[gen_key]) if gen_key in base_model.Generation else 0.0
+
+    # Construct basis demand_price_blocks with dummy blocks (same for all t, initialized once)
+    # Block 1: High price, low capacity
+    # Block 2: Medium price, medium capacity
+    # Block 3: Iteration-dependent, based on methanol CO2 demand
+    dummy_blocks = [
+        {"block": 1, "price": 100.0, "capacity": 50.0},  # High price block
+        {"block": 2, "price": 50.0, "capacity": 150.0}   # Medium price block
+    ]
+    
+    demand_price_blocks = {}
+    for t in base_model.T:
+        capacity = co2_comp_use.get(t, 0.0)
+        price = co2_duals[t] 
+        block3 = {"block": 3, "price": price, "capacity": capacity}
+        demand_price_blocks[t] = sorted(dummy_blocks + [block3], key=lambda x: -x['price'])
+        for i, block in enumerate(demand_price_blocks[t]):
+            block['block'] = i + 1  # Re-index blocks
+
+    print(f"\n[INFO] Strategies and demand curves intialized.")
+
+    # ------------------------------------------------------------ 
     # 2. BEST-RESPONSE ITERATION LOOP
     # ------------------------------------------------------------
     for iteration in range(1, max_iter+1):
         print(f"\n----- Iteration {iteration} -----")
         max_change = 0.0
 
-        for tech in strategic_suppliers:
-            # Build new submodel for supplier tech
-            m = silent_build_model(cfg)
-            m.dual = Suffix(direction=Suffix.IMPORT)
+        # Build submodel (supply-side: biogas)
+        # Assuming only one strategic supplier for simplicity; extend as needed
+        submodel = build_biogas_model(cfg, demand_price_blocks)
+        submodel.dual = Suffix(direction=Suffix.IMPORT)
 
-            # Fix competitors' sales
-            _fix_competitor_sales(m, tech, strategic_suppliers, tech_to_area, curr, co2_label)
+        # _fix_competitor_sales(submodel, tech, strategic_suppliers, tech_to_area, curr, co2_label)
 
-            # TODO: Modify objective to firm profit_i
-            # profit_i = sum_t [ price(t)*Sale_i(t) - cost_i_gen(t) ].
-            # Easiest: set price param to inverse demand p(t) = a - b*(sum_all_sales)
-            # But since competitor sales are fixed we can compute demand price as function of this supplier's sale variable.
-            # For simplicity, we just keep the original objective but let solver choose the best Sale for tech by not fixing its sale variables,
-            # and ensure no other decision variables allow arbitrage. This is approximate but often works for simple cases.
-            # Solve BR
-            # _define_strategic_objective(m, tech, strategic_suppliers, tech_to_area, curr, co2_label)
+        # Solve submodel
+        solver.solve(submodel, tee=False)
 
-            # Solve the submodel profit maximization for this suplier i
-            solver.solve(m, tee=False)
+        # Extract and update the supplier's best response
+        area = tech_to_area.get(tech)
+        change = 0.0
+        for t in submodel.T:
+            co2_sell = value(submodel.CO2_TotalSell[t]) if t in submodel.CO2_TotalSell else 0.0
+            co2_price = value(submodel.CO2_MarketPrice[t]) if t in submodel.CO2_MarketPrice else 0.0
+            
+            new_val = co2_sell
+            old_val = curr[tech].get(t, 0.0)
+            updated = damping * new_val + (1 - damping) * old_val
+            curr[tech][t] = updated
+            change = max(change, abs(new_val - old_val))
 
-            # Extract and update this supplier's best response
-            change = _update_strategy(m, tech, tech_to_area, curr, co2_label, damping)
-            max_change = max(max_change, change)
+        # ???
+        max_change = max(max_change, change)
+
+        # Optional: Optimize demand-side (methanol) - build supply_price_blocks similarly
+        # supply_price_blocks = construct_supply_curves(curr, ...)  # Implement based on strategies
+        # methanol_submodel = build_methanol_model(cfg, supply_price_blocks, ...)
+        # solver.solve(methanol_submodel, tee=False)
+        # Update demand-side strategies if applicable
 
         print(f"[ITER {iteration}] Max change = {max_change:.6f}")
 
-        # Convergence test
+        # Check convergence
         if max_change < tol:
             print(f"\n[INFO] Converged after {iteration} iterations (tol={tol}).\n")
-            print(curr)
             break
     else:
         print("[WARN] Max iterations reached without full convergence.\n")
