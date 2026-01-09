@@ -109,17 +109,28 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
             if co2_sell != value(biogas_submodel.CO2_TotalSell[t]):
                 print(f"[WARN] Mismatch in total CO2 sell at time {t}")
 
-        # Optimize demand-side submodel (methanol)
-        methanol_submodel = build_methanol_model(cfg, curr, dummy_blocks)
-        methanol_submodel.dual = Suffix(direction=Suffix.IMPORT)
-        solver.solve(methanol_submodel, tee=False)
-
         # Check convergence
         print(f"[ITER {iteration}] Max change = {max_change:.6f}")
         if max_change < tol:
             print(f"\n[INFO] Converged after {iteration} iterations (tol={tol}).\n")
             print("\n================= Cournot Loop Completed =================\n")
             break
+
+        # Optimize demand-side submodel (methanol) for next iteration
+        methanol_submodel = build_methanol_model(cfg, curr, dummy_blocks)
+        methanol_submodel.dual = Suffix(direction=Suffix.IMPORT)
+        solver.solve(methanol_submodel, tee=False)
+
+        demand_price_blocks = {}
+        # Update demand_price_blocks for next iteration based on new CO2 demand
+        for t in methanol_submodel.T:
+            capacity = value(methanol_submodel.FuelUse['MethanolSynthesis', co2_label, t]) if ('MethanolSynthesis', co2_label, t) in methanol_submodel.FuelUse else 0.0
+            price = methanol_submodel.dual.get(methanol_submodel.Balance['Skive', 'CO2', t], 0.0) if ('Skive', 'CO2', t) in methanol_submodel.Balance.index_set() else 0.0
+            block3 = {"block": 3, "price": price, "capacity": capacity}
+            demand_price_blocks[t] = sorted(dummy_blocks + [block3], key=lambda x: -x['price'])
+            for i, block in enumerate(demand_price_blocks[t]):
+                block['block'] = i + 1  # Re-index blocks
+
     else:
         print("[WARN] Max iterations reached without full convergence.\n")
         # Find out a technique to force convergence if necessary or at least finalize differently
@@ -160,7 +171,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
     # for key in q_central:
     #     print(f"  {key}: central={q_central[key]:.3f}, strategic={q_strat[key]:.3f}, Δ={q_strat[key]-q_central[key]:.3e}")
     
-    return final_model, curr
+    return curr
 
 
 # ============================================================
