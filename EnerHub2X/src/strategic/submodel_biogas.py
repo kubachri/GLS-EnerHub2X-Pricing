@@ -3,7 +3,6 @@
 import pyomo.environ as pyo
 from copy import deepcopy
 
-from src.config import ModelConfig
 from src.data.loader import load_data   # reused but we will override some parts
 from src.data.preprocess import scale_tech_parameters, slice_time_series
 from src.model.sets import define_sets

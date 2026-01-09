@@ -1,3 +1,5 @@
+# src/strategic/strategic_loop.py
+
 from pyomo.environ import value, SolverFactory, Suffix, Objective, maximize
 from src.model.builder import build_model
 from src.config import ModelConfig
