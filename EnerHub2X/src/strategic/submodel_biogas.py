@@ -14,7 +14,7 @@ from src.model.objective import define_objective
 from src.utils.validate_strategic_model import validate_strategic_model
 
 
-def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade", "CO2Compressor", "CO2Storage"], co2_label='CO2'):
+def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade", "CO2Compressor", "CO2Storage"], co2_label='CO2Comp'):
     """
     Build a restricted Pyomo model for the biogas actor.
 
@@ -188,12 +188,12 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade", 
     # Simplest version: enforce Sale == block sum for each time and location
     # (Extend later to multiple locations/time if desired)
 
-    # area_export = "DK1"
-    # first_t = list(data["T"])[0]
+    area_export = "DK1"
 
-    # def bind_sale_to_blocks(mm):
-    #     return mm.Sale[area_export, co2_label, first_t] == mm.CO2_TotalSell
-    # m.CO2_BlockBinding = pyo.Constraint(rule=bind_sale_to_blocks)
+    def bind_sale_to_blocks(m, t):
+        return m.Sale[area_export, co2_label, t] == m.CO2_TotalSell[t]
+    m.CO2_BlockBinding = pyo.Constraint(m.T, rule=bind_sale_to_blocks)
+
 
     # ------------------------------------------------------------------
     # 7. Define biogas profit objective
