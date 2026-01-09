@@ -24,7 +24,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
     base_model.dual = Suffix(direction=Suffix.IMPORT)
     solver = SolverFactory('gurobi')
     solver.solve(base_model, tee=False)
-    print("\n[INFO] Centralized baseline solve completed.\n")
+    print("[INFO] Centralized baseline solve completed.")
 
     # Retrieve strategic actors (assume list of techs, e.g., ['BiogasUpgrade'])
     # strategic_suppliers = getattr(base_model, 'StrategicSuppliers', ['BiogasUpgrade'])
@@ -35,7 +35,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
     strategic_demanders = ['MethanolSynthesis']
   
     # Extract CO2 comp use (demand) and duals (willingness to pay) for curve construction
-    co2_comp_use = {t: value(base_model.FuelUse['MethanolSynthesis', co2_label, t]) for t in base_model.T if ('MethanolSynthesis', co2_label, t) in base_model.FuelUse}
+    co2_comp_use = {t: value(base_model.Fueluse['MethanolSynthesis', co2_label, t]) for t in base_model.T if ('MethanolSynthesis', co2_label, t) in base_model.Fueluse}
     co2_duals = {t: base_model.dual.get(base_model.Balance['Skive', 'CO2', t], 0.0) if ('Skive', 'CO2', t) in base_model.Balance.index_set() else 0.0 for t in base_model.T} 
 
     # Mapping tech -> area
@@ -126,7 +126,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
         demand_price_blocks = {}
         # Update demand_price_blocks for next iteration based on new CO2 demand
         for t in methanol_submodel.T:
-            capacity = value(methanol_submodel.FuelUse['MethanolSynthesis', co2_label, t]) if ('MethanolSynthesis', co2_label, t) in methanol_submodel.FuelUse else 0.0
+            capacity = value(methanol_submodel.Fueluse['MethanolSynthesis', co2_label, t]) if ('MethanolSynthesis', co2_label, t) in methanol_submodel.Fueluse else 0.0
             price = methanol_submodel.dual.get(methanol_submodel.Balance['Skive', 'CO2', t], 0.0) if ('Skive', 'CO2', t) in methanol_submodel.Balance.index_set() else 0.0
             block3 = {"block": 3, "price": price, "capacity": capacity}
             demand_price_blocks[t] = sorted(dummy_blocks + [block3], key=lambda x: -x['price'])

@@ -55,25 +55,26 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade", 
     if cfg.test_mode:
         data = slice_time_series(data, cfg.n_test)
 
-    print("\nAll data loaded for biogas submodel.\n")
-    
-    # Restrict technologies G
-    data['G'] = [g for g in data['G'] if g in techs_biogas]
+    print("All data loaded for biogas submodel.")
 
     # Ensure CO2 is in the fuels set for Sale variable definition
     if co2_label not in data['F']:
         data['F'].append(co2_label)
 
     # Ensure price_sell has entries for CO2 (set to 0, since price is endogenous)
+    area_export = "DK1"
     if 'price_sell' not in data:
         data['price_sell'] = {}
-    for a in data['A']:
-        for t in data['T']:
-            key = (a, co2_label, t)
-            if key not in data['price_sell']:
-                data['price_sell'][key] = 0.0
+    for t in data['T']:
+        key = (area_export, co2_label, t)
+        if key not in data['price_sell']:
+            data['price_sell'][key] = 0.1  # small positive to avoid issues
 
-    # Optionally restrict other sets if needed (Locations, Fuels)
+    # # Restrict technologies G
+    # data['G'] = [g for g in data['G'] if g in techs_biogas]
+    # data['G_s'] = [g for g in data['G_s'] if g in techs_biogas]
+
+    # Restrict other sets if needed (Locations, Fuels)
     # Here we keep full sets but it might be better to restrict further.
 
     # ------------------------------------------------------------------
@@ -81,47 +82,47 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade", 
     # ------------------------------------------------------------------
     m = pyo.ConcreteModel()
 
-    # #DemandTarget
-    # m.Demand_Target = cfg.demand_target
-    # if m.Demand_Target:
-    #     print("Running with a demand target ...\n")
+    #DemandTarget
+    m.Demand_Target = cfg.demand_target
+    if m.Demand_Target:
+        print("Running with a demand target ...\n")
 
-    # #Green fuels
-    # m.GreenElectricity = cfg.green_electricity
-    # if m.GreenElectricity:
-    #     print("Running with a green electrity from the grid (<20 EUR/MWh) ...\n")
+    #Green fuels
+    m.GreenElectricity = cfg.green_electricity
+    if m.GreenElectricity:
+        print("Running with a green electrity from the grid (<20 EUR/MWh) ...\n")
 
-    # #Electricity mandate
-    # m.ElectricityMandate = cfg.electricity_mandate
-    # if m.ElectricityMandate:
-    #     print(f"Running with an electricity mandate of {m.ElectricityMandate*100}% ...\n")
+    #Electricity mandate
+    m.ElectricityMandate = cfg.electricity_mandate
+    if m.ElectricityMandate:
+        print(f"Running with an electricity mandate of {m.ElectricityMandate*100}% ...\n")
 
-    # #Electricity export limit
-    # m.ElProdToGrid = cfg.el_prod_to_grid
-    # if m.ElProdToGrid:
-    #     print(f"Running with grid export to production ratio of {m.ElProdToGrid*100}% ...\n")
+    #Electricity export limit
+    m.ElProdToGrid = cfg.el_prod_to_grid
+    if m.ElProdToGrid:
+        print(f"Running with grid export to production ratio of {m.ElProdToGrid*100}% ...\n")
 
     define_sets(m, data)
     define_params(m, data, tech_df)
     define_variables(m)
     add_constraints(m)
     
-    # define_objective(m, cfg=cfg)
+    # # Restrict technologies G
+    # m.G = pyo.Set(initialize=[g for g in data['G'] if g in techs_biogas], within=m.G)
+    # m.G_s = pyo.Set(initialize=[g for g in data['G_s'] if g in techs_biogas], within=m.G_s)
 
     # ------------------------------------------------------------------
     # 3. Inject CO2 demand price curve (time-dependent)
     # ------------------------------------------------------------------
-    # Create indexed sets of blocks per time
-    def demand_blocks_init(m, t):
-        return [blk["block"] for blk in demand_price_blocks.get(t, [])]
-    m.DEMAND_BLOCKS = pyo.Set(m.T, initialize=demand_blocks_init)
+    # Create a non-indexed set of block ids non time-dependent
+    m.BLOCKS = pyo.Set(initialize=list(range(1, len(demand_price_blocks.get(data['T'][0], [])) + 1)))
 
     # Block prices per time and block
     def demand_block_price_init(m, t, b):
         blocks = demand_price_blocks.get(t, [])
         return next((blk["price"] for blk in blocks if blk["block"] == b), 0)
     m.Demand_BlockPrice = pyo.Param(
-        m.T, m.DEMAND_BLOCKS,
+        m.T, m.BLOCKS,
         initialize=demand_block_price_init,
         within=pyo.NonNegativeReals,
         mutable=True,
@@ -132,7 +133,7 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade", 
         blocks = demand_price_blocks.get(t, [])
         return next((blk["capacity"] for blk in blocks if blk["block"] == b), 0)
     m.Demand_BlockCap = pyo.Param(
-        m.T, m.DEMAND_BLOCKS,
+        m.T, m.BLOCKS,
         initialize=demand_block_cap_init,
         within=pyo.NonNegativeReals,
         mutable=True,
@@ -143,7 +144,7 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade", 
         blocks = demand_price_blocks.get(t, [])
         return sum(blk["capacity"] for blk in blocks if blk["block"] < b)
     m.Demand_BlockCumCap = pyo.Param(
-        m.T, m.DEMAND_BLOCKS,
+        m.T, m.BLOCKS,
         initialize=demand_block_cumcap_init,
         within=pyo.NonNegativeReals,
         mutable=True,
@@ -154,19 +155,19 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade", 
     # ------------------------------------------------------------------
 
     # Decision: in which block is the market cleared per time
-    m.CO2_ActiveBlock = pyo.Var(m.T, m.DEMAND_BLOCKS, within=pyo.Binary)
+    m.CO2_ActiveBlock = pyo.Var(m.T, m.BLOCKS, within=pyo.Binary)
 
     # Decision: how much CO2 is sold in the active block per time
-    m.CO2_SellBlock = pyo.Var(m.T, m.DEMAND_BLOCKS, within=pyo.NonNegativeReals)
+    m.CO2_SellBlock = pyo.Var(m.T, m.BLOCKS, within=pyo.NonNegativeReals)
 
     # Total CO2 sales from blocks per time
     def co2_total_sell_rule(m, t):
-        return sum(m.CO2_SellBlock[t, b] + m.CO2_ActiveBlock[t, b] * m.Demand_BlockCumCap[t, b] for b in m.DEMAND_BLOCKS[t])
+        return sum(m.CO2_SellBlock[t, b] + m.CO2_ActiveBlock[t, b] * m.Demand_BlockCumCap[t, b] for b in m.BLOCKS)
     m.CO2_TotalSell = pyo.Expression(m.T, rule=co2_total_sell_rule)
 
     # CO2 market clearing price expression per time
     def co2_market_price_rule(m, t):
-        return sum(m.Demand_BlockPrice[t, b] * m.CO2_ActiveBlock[t, b] for b in m.DEMAND_BLOCKS[t])
+        return sum(m.Demand_BlockPrice[t, b] * m.CO2_ActiveBlock[t, b] for b in m.BLOCKS)
     m.CO2_MarketPrice = pyo.Expression(m.T, rule=co2_market_price_rule)
 
     # ------------------------------------------------------------------
@@ -175,10 +176,10 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade", 
 
     def co2_block_capacity_rule(m, t, b):
         return m.CO2_SellBlock[t, b] <= m.Demand_BlockCap[t, b] * m.CO2_ActiveBlock[t, b]
-    m.CO2_BlockCapConstr = pyo.Constraint(m.T, m.DEMAND_BLOCKS, rule=co2_block_capacity_rule)
+    m.CO2_BlockCapConstr = pyo.Constraint(m.T, m.BLOCKS, rule=co2_block_capacity_rule)
 
     def co2_single_active_block_rule(m, t):
-        return sum(m.CO2_ActiveBlock[t, b] for b in m.DEMAND_BLOCKS[t]) == 1
+        return sum(m.CO2_ActiveBlock[t, b] for b in m.BLOCKS) == 1
     m.CO2_SingleActiveBlockConstr = pyo.Constraint(m.T, rule=co2_single_active_block_rule)
 
     # ------------------------------------------------------------------
@@ -187,7 +188,8 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade", 
     # Simplest version: enforce Sale == block sum for each time and location
     # (Extend later to multiple locations/time if desired)
 
-    area_export = "DK1"
+    # Print existing Sale variable keys for debugging
+    print("Sale variable keys:", list(m.Sale.keys()))
 
     def bind_sale_to_blocks(m, t):
         return m.Sale[area_export, co2_label, t] == m.CO2_TotalSell[t]
@@ -214,7 +216,7 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade", 
         sale_rev = sum(
             m.Demand_BlockPrice[t, b] * (m.CO2_SellBlock[t, b] + m.CO2_ActiveBlock[t, b] * m.Demand_BlockCumCap[t, b])
             for t in m.T
-            for b in m.DEMAND_BLOCKS[t]
+            for b in m.BLOCKS
         )
 
         # c) Variable O&M on all tech→energy links

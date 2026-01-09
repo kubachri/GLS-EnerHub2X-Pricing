@@ -102,8 +102,8 @@ def load_data(cfg):
         if v != 0
     })
 
-    print("fuels:", fuels)
-    print("areas:", areas)
+    # print("fuels:", fuels)
+    # print("areas:", areas)
 
 
 
@@ -318,7 +318,7 @@ def load_data(cfg):
     # -----------------------
 
     if cfg.strategic:
-        print(f"\n[INFO] Loading Strategic Actors and Inverse Demand from Excel.")
+        # print(f"\n[INFO] Loading Strategic Actors and Inverse Demand from Excel.")
 
         # Read StrategicActors sheet (optional)
         if 'StrategicActors' in xls.sheet_names:
@@ -394,8 +394,8 @@ def load_data(cfg):
     # print(f"\n[DEBUG] Strategic flag is set: {cfg.strategic}. Checking strategic actors and inverse demand parameters...")
     # verify_strategic_inputs(data)
 
-    print(f"[INFO] Loaded {len(data['StrategicSuppliers'])} strategic supplier: {data['StrategicSuppliers']} and {len(data['StrategicDemanders'])} strategic demander: {data['StrategicDemanders']}.")
-    print(f"[INFO] Sample a_co2[0]: {data['a_co2'][T[0]]}, b_co2[0]: {data['b_co2'][T[0]]}")
+    # print(f"[INFO] Loaded {len(data['StrategicSuppliers'])} strategic supplier: {data['StrategicSuppliers']} and {len(data['StrategicDemanders'])} strategic demander: {data['StrategicDemanders']}.")
+    # print(f"[INFO] Sample a_co2[0]: {data['a_co2'][T[0]]}, b_co2[0]: {data['b_co2'][T[0]]}")
 
     return data, tech_df
 
