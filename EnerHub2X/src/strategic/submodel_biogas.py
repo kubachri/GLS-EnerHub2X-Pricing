@@ -13,7 +13,7 @@ from src.model.objective import define_objective
 from src.utils.validate_strategic_model import validate_strategic_model
 
 
-def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade", "CO2Compressor", "CO2Storage"], co2_label='CO2Comp'):
+def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade"], co2_label='CO2'):
     """
     Build a restricted Pyomo model for the biogas actor.
 
@@ -57,18 +57,18 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade", 
 
     print("All data loaded for biogas submodel.")
 
-    # Ensure CO2 is in the fuels set for Sale variable definition
-    if co2_label not in data['F']:
-        data['F'].append(co2_label)
+    # # Ensure CO2 is in the fuels set for Sale variable definition
+    # if co2_label not in data['F']:
+    #     data['F'].append(co2_label)
 
-    # Ensure price_sell has entries for CO2 (set to 0, since price is endogenous)
-    area_export = "DK1"
-    if 'price_sell' not in data:
-        data['price_sell'] = {}
-    for t in data['T']:
-        key = (area_export, co2_label, t)
-        if key not in data['price_sell']:
-            data['price_sell'][key] = 0.1  # small positive to avoid issues
+    # # Ensure price_sell has entries for CO2 (set to 0, since price is endogenous)
+    # area_export = "DK1"
+    # if 'price_sell' not in data:
+    #     data['price_sell'] = {}
+    # for t in data['T']:
+    #     key = (area_export, co2_label, t)
+    #     if key not in data['price_sell']:
+    #         data['price_sell'][key] = 0.1  # small positive to avoid issues
 
     # # Restrict technologies G
     # data['G'] = [g for g in data['G'] if g in techs_biogas]
@@ -82,25 +82,25 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade", 
     # ------------------------------------------------------------------
     m = pyo.ConcreteModel()
 
-    #DemandTarget
-    m.Demand_Target = cfg.demand_target
-    if m.Demand_Target:
-        print("Running with a demand target ...\n")
+    # #DemandTarget
+    # m.Demand_Target = cfg.demand_target
+    # if m.Demand_Target:
+    #     print("Running with a demand target ...\n")
 
-    #Green fuels
-    m.GreenElectricity = cfg.green_electricity
-    if m.GreenElectricity:
-        print("Running with a green electrity from the grid (<20 EUR/MWh) ...\n")
+    # #Green fuels
+    # m.GreenElectricity = cfg.green_electricity
+    # if m.GreenElectricity:
+    #     print("Running with a green electrity from the grid (<20 EUR/MWh) ...\n")
 
-    #Electricity mandate
-    m.ElectricityMandate = cfg.electricity_mandate
-    if m.ElectricityMandate:
-        print(f"Running with an electricity mandate of {m.ElectricityMandate*100}% ...\n")
+    # #Electricity mandate
+    # m.ElectricityMandate = cfg.electricity_mandate
+    # if m.ElectricityMandate:
+    #     print(f"Running with an electricity mandate of {m.ElectricityMandate*100}% ...\n")
 
-    #Electricity export limit
-    m.ElProdToGrid = cfg.el_prod_to_grid
-    if m.ElProdToGrid:
-        print(f"Running with grid export to production ratio of {m.ElProdToGrid*100}% ...\n")
+    # #Electricity export limit
+    # m.ElProdToGrid = cfg.el_prod_to_grid
+    # if m.ElProdToGrid:
+    #     print(f"Running with grid export to production ratio of {m.ElProdToGrid*100}% ...\n")
 
     define_sets(m, data)
     define_params(m, data, tech_df)
@@ -189,11 +189,11 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade", 
     # (Extend later to multiple locations/time if desired)
 
     # Print existing Sale variable keys for debugging
-    print("Sale variable keys:", list(m.Sale.keys()))
+    # print("Sale variable keys:", list(m.Sale.keys()))
 
-    def bind_sale_to_blocks(m, t):
-        return m.Sale[area_export, co2_label, t] == m.CO2_TotalSell[t]
-    m.CO2_BlockBinding = pyo.Constraint(m.T, rule=bind_sale_to_blocks)
+    # def bind_sale_to_blocks(m, t):
+    #     return m.Sale[area_export, co2_label, t] == m.CO2_TotalSell[t]
+    # m.CO2_BlockBinding = pyo.Constraint(m.T, rule=bind_sale_to_blocks)
 
 
     # ------------------------------------------------------------------
@@ -212,7 +212,7 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade", 
         # a) Fuel cost 
         imp_cost = sum(
             m.price_buy[a,e,t] * m.Buy[a,e,t]
-            for (a,e) in areas*fuels
+            for a in areas for e in fuels
             if (a,e) in m.buyE
             for t in m.T
         )
@@ -225,7 +225,7 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade", 
         # c) Variable O&M on all tech→energy links
         var_om = sum(
             m.Generation[g,e,t] * m.cvar[g]
-            for (g,e) in technologies*fuels
+            for g in technologies for e in fuels
             if (g,e) in m.TechToEnergy
             for t in m.T
         )

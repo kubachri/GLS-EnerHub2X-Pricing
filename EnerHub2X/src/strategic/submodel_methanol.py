@@ -12,7 +12,7 @@ from src.model.constraints import add_constraints
 from src.model.objective import define_objective
 
 
-def build_methanol_model(cfg, supply, price_co2=None, techs=['MethanolSynthesis'], co2_label='CO2Comp'):
+def build_methanol_model(cfg, supply, price_co2=None, techs=["CO2Compressor", "CO2Storage", "MethanolSynthesis"], co2_label='CO2'):
     """
     Build a restricted Pyomo model for the methanol actor.
 

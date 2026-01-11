@@ -8,7 +8,7 @@ from contextlib import redirect_stdout
 from src.strategic.submodel_biogas import build_biogas_model
 from src.strategic.submodel_methanol import build_methanol_model  # Assuming you implement this
 
-def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label='CO2Comp'):
+def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label='CO2'):
     """
     Iterative Cournot best-response algorithm for CO2 market.
     Each strategic supplier adjusts its sale quantity given competitors' fixed quantities.
@@ -26,25 +26,18 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
     solver.solve(base_model, tee=False)
     print("[INFO] Centralized baseline solve completed.")
 
-    # Retrieve strategic actors (assume list of techs, e.g., ['BiogasUpgrade'])
-    # strategic_suppliers = getattr(base_model, 'StrategicSuppliers', ['BiogasUpgrade'])
-    # strategic_demanders = getattr(base_model, 'StrategicDemanders', ['MethanolSynthesis'])  
-    
-    # As of now, carrier mix is defined such that supply of CO2Comp is = {CO2Compressor, CO2Storage} and demand is = {MethanolSynthesis}
-    strategic_suppliers = ['CO2Compressor', 'CO2Storage']
-    strategic_demanders = ['MethanolSynthesis']
-  
-    # Extract CO2 comp use (demand) and duals (willingness to pay) for curve construction
-    co2_comp_use = {t: value(base_model.Fueluse['MethanolSynthesis', co2_label, t]) for t in base_model.T if ('MethanolSynthesis', co2_label, t) in base_model.Fueluse}
-    co2_duals = {t: base_model.dual.get(base_model.Balance['Skive', 'CO2', t], 0.0) if ('Skive', 'CO2', t) in base_model.Balance.index_set() else 0.0 for t in base_model.T} 
-
     # Mapping tech -> area
     tech_to_area = {tech: area for (area, tech) in base_model.location}
     # area = tech_to_area.get(tech)
 
-    # Initialize supply strategies using CO2Comp generation (supply)
-    # curr = _initialize_strategies(base_model, strategic_suppliers, tech_to_area, co2_label)
+    # Retrieve strategic actors (assume list of techs, e.g., ['BiogasUpgrade'])
+    # strategic_suppliers = getattr(base_model, 'StrategicSuppliers', ['BiogasUpgrade'])
+    # strategic_demanders = getattr(base_model, 'StrategicDemanders', ['CO2Compressor', 'CO2Storage', 'MethanolSynthesis'])  
+    strategic_suppliers = ['BiogasUpgrade']
+    strategic_demanders = ['CO2Compressor', 'CO2Storage', 'MethanolSynthesis']
 
+    # Initialize supply strategies using CO2 generation (supply)
+    # curr = _initialize_strategies(base_model, strategic_suppliers, tech_to_area, co2_label)
     curr = {} # supply current strategy
     for tech in strategic_suppliers:
         curr[tech] = {}
@@ -52,6 +45,23 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
             # Use Generation for CO2-producing techs as proxy for sales
             gen_key = (tech, co2_label, t) if (tech, co2_label) in base_model.f_out else None
             curr[tech][t] = value(base_model.Generation[gen_key]) if gen_key in base_model.Generation else 0.0
+
+    print(f"[INFO] Strategic suppliers: {strategic_suppliers}")
+    print(f"Initial strategy (total CO2 supply): {sum(curr[tech][t] for tech in curr for t in curr[tech])}")
+
+    # Extract CO2 use (demand) and duals (willingness to pay) for curve construction
+    co2_use = {t: 
+                sum(
+                    value(base_model.Fueluse[tech, co2_label, t]) 
+                    for tech in strategic_demanders
+                    if (tech, co2_label, t) in base_model.Fueluse
+                    )
+                for t in base_model.T 
+               }
+    co2_duals = {t: abs(base_model.dual.get(base_model.Balance['Skive', co2_label, t], 0.0)) if ('Skive', co2_label, t) in base_model.Balance.index_set() else 0.0 for t in base_model.T} 
+
+    print(f"Strategic demanders: {strategic_demanders}")
+    print(f"CO2 initial demand: {sum(co2_use.values())}, average price: {sum(co2_duals.values())/len(co2_duals):.2f}")
 
     # Construct basis demand_price_blocks with dummy blocks (same for all t, initialized once)
     # Block 1: High price, low capacity
@@ -64,7 +74,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
     
     demand_price_blocks = {}
     for t in base_model.T:
-        capacity = co2_comp_use.get(t, 0.0)
+        capacity = co2_use.get(t, 0.0)
         price = co2_duals[t] 
         block3 = {"block": 3, "price": price, "capacity": capacity}
         demand_price_blocks[t] = sorted(dummy_blocks + [block3], key=lambda x: -x['price'])
@@ -109,7 +119,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
                 co2_sell += new_val
 
             if co2_sell != value(biogas_submodel.CO2_TotalSell[t]):
-                print(f"[WARN] Mismatch in total CO2 sell at time {t}")
+                print(f"[WARN] Mismatch in total CO2 sell at time {t}: computed={co2_sell}, model={value(biogas_submodel.CO2_TotalSell[t])}")
 
         # Check convergence
         print(f"[ITER {iteration}] Max change = {max_change:.6f}")
@@ -127,7 +137,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
         # Update demand_price_blocks for next iteration based on new CO2 demand
         for t in methanol_submodel.T:
             capacity = value(methanol_submodel.Fueluse['MethanolSynthesis', co2_label, t]) if ('MethanolSynthesis', co2_label, t) in methanol_submodel.Fueluse else 0.0
-            price = methanol_submodel.dual.get(methanol_submodel.Balance['Skive', 'CO2', t], 0.0) if ('Skive', 'CO2', t) in methanol_submodel.Balance.index_set() else 0.0
+            price = abs(methanol_submodel.dual.get(methanol_submodel.Balance['Skive', 'CO2', t], 0.0)) if ('Skive', 'CO2', t) in methanol_submodel.Balance.index_set() else 0.0
             block3 = {"block": 3, "price": price, "capacity": capacity}
             demand_price_blocks[t] = sorted(dummy_blocks + [block3], key=lambda x: -x['price'])
             for i, block in enumerate(demand_price_blocks[t]):
