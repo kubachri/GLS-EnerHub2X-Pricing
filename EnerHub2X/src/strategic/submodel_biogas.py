@@ -220,9 +220,7 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
         # a) Fuel cost 
         imp_cost = sum(
             m.price_buy[a,e,t] * m.Buy[a,e,t]
-            for a in areas
-            for e in fuels
-            if (a,e) in m.buyE
+            for (a,e) in m.buyE
             for t in m.T
         )
         # b) Sale revenue (modified to match block pricing, summed over time)
@@ -234,15 +232,13 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
         # c) Variable O&M on all tech→energy links
         var_om = sum(
             m.Generation[g,e,t] * m.cvar[g]
-            for g in technologies
-            for e in fuels
-            if (g,e) in m.TechToEnergy
+            for (g,e) in m.TechToEnergy
             for t in m.T
         )
         # d) Startup costs
         startup = sum(
             m.Startcost[g,t]
-            for g in technologies
+            for g in m.G
             for t in m.T
         )
 

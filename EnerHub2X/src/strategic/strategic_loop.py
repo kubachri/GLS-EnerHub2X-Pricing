@@ -8,6 +8,9 @@ from contextlib import redirect_stdout
 from src.strategic.submodel_biogas import build_biogas_model
 from src.strategic.submodel_methanol import build_methanol_model  # Assuming you implement this
 
+from pyomo.environ import Var, Binary
+from pyomo.environ import TransformationFactory
+
 def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label='CO2'):
     """
     Iterative Cournot best-response algorithm for CO2 market.
@@ -21,9 +24,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
     # ------------------------------------------------------------
     print("[INFO] Building and solving initial centralized model...")
     base_model = silent_build_model(cfg)  # Use silent_build_model to avoid prints
-    base_model.dual = Suffix(direction=Suffix.IMPORT)
-    solver = SolverFactory('gurobi')
-    solver.solve(base_model, tee=False)
+
     print("[INFO] Centralized baseline solve completed.")
 
     # Mapping tech -> area
@@ -58,7 +59,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
                     )
                 for t in base_model.T 
                }
-    co2_duals = {t: abs(base_model.dual.get(base_model.Balance['Skive', co2_label, t], 0.0)) if ('Skive', co2_label, t) in base_model.Balance.index_set() else 0.0 for t in base_model.T} 
+    co2_duals = {t: abs(base_model.dual.get(base_model.Balance['Skive', co2_label, t], 0.0)) for t in base_model.T} 
 
     print(f"Strategic demanders: {strategic_demanders}")
     print(f"CO2 initial demand: {sum(co2_use.values())}, average price: {sum(co2_duals.values())/len(co2_duals):.2f}")
@@ -281,4 +282,29 @@ def silent_build_model(cfg):
     f = io.StringIO()
     with redirect_stdout(f):          # temporarily hide all print() inside
         model = build_model(cfg)
+        model.dual = Suffix(direction=Suffix.IMPORT)
+        solver = SolverFactory('gurobi_persistent')
+        solver.set_instance(model, symbolic_solver_labels=True)
+        solver.options['MIPGap'] = 0.05
+        print("\nSolving MIP …\n")
+        mip_result = solver.solve(model, tee=True)
+        term = mip_result.solver.termination_condition
+        print(f"\n→ Initial termination condition: {term}")
+
+        # After solving the MIP, but before fixing binaries:
+        for v in model.component_data_objects(Var, descend_into=True):
+            if v.domain is Binary and v.value is not None:
+                v.fix(v.value)
+
+        print("\nRelaxing integer vars → pure LP …\n")
+        TransformationFactory('core.relax_integer_vars').apply_to(model)
+
+        # Clear any old duals, then re‐solve as an LP to get duals
+        print("Re‐solving as an LP to extract duals …\n")
+        lp_solver = SolverFactory('gurobi')
+        lp_result = lp_solver.solve(model, tee=False, suffixes=['dual'])
+        lp_obj = value(model.Obj)
+        print(f"→ LP objective (continuous, binaries fixed) = {lp_obj:,.2f}\n")
+        print("LP solve finished.\n")
+
     return model
