@@ -46,7 +46,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
             gen_key = (tech, co2_label, t) if (tech, co2_label) in base_model.f_out else None
             curr[tech][t] = value(base_model.Generation[gen_key]) if gen_key in base_model.Generation else 0.0
 
-    print(f"[INFO] Strategic suppliers: {strategic_suppliers}")
+    print(f"\n[INFO] Strategic suppliers: {strategic_suppliers}")
     print(f"Initial strategy (total CO2 supply): {sum(curr[tech][t] for tech in curr for t in curr[tech])}")
 
     # Extract CO2 use (demand) and duals (willingness to pay) for curve construction

@@ -13,7 +13,7 @@ from src.model.objective import define_objective
 from src.utils.validate_strategic_model import validate_strategic_model
 
 
-def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade"], co2_label='CO2'):
+def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "BiogasUpgrade", "Boiler"], co2_label='CO2'):
     """
     Build a restricted Pyomo model for the biogas actor.
 
@@ -81,26 +81,30 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade"],
     # 2. Assemble Pyomo model
     # ------------------------------------------------------------------
     m = pyo.ConcreteModel()
+    cfg.demand_target = False  # Disable demand target for biogas submodel
+    cfg.green_electricity = False  # Disable green electricity for biogas submodel
+    cfg.electricity_mandate = 0.0  # Disable electricity mandate for biogas submodel
+    cfg.el_prod_to_grid = 0.0  # Disable electricity export limit for biogas submodel
 
-    # #DemandTarget
-    # m.Demand_Target = cfg.demand_target
-    # if m.Demand_Target:
-    #     print("Running with a demand target ...\n")
+    #DemandTarget
+    m.Demand_Target = cfg.demand_target
+    if m.Demand_Target:
+        print("Running with a demand target ...\n")
 
-    # #Green fuels
-    # m.GreenElectricity = cfg.green_electricity
-    # if m.GreenElectricity:
-    #     print("Running with a green electrity from the grid (<20 EUR/MWh) ...\n")
+    #Green fuels
+    m.GreenElectricity = cfg.green_electricity
+    if m.GreenElectricity:
+        print("Running with a green electrity from the grid (<20 EUR/MWh) ...\n")
 
-    # #Electricity mandate
-    # m.ElectricityMandate = cfg.electricity_mandate
-    # if m.ElectricityMandate:
-    #     print(f"Running with an electricity mandate of {m.ElectricityMandate*100}% ...\n")
+    #Electricity mandate
+    m.ElectricityMandate = cfg.electricity_mandate
+    if m.ElectricityMandate:
+        print(f"Running with an electricity mandate of {m.ElectricityMandate*100}% ...\n")
 
-    # #Electricity export limit
-    # m.ElProdToGrid = cfg.el_prod_to_grid
-    # if m.ElProdToGrid:
-    #     print(f"Running with grid export to production ratio of {m.ElProdToGrid*100}% ...\n")
+    #Electricity export limit
+    m.ElProdToGrid = cfg.el_prod_to_grid
+    if m.ElProdToGrid:
+        print(f"Running with grid export to production ratio of {m.ElProdToGrid*100}% ...\n")
 
     define_sets(m, data)
     define_params(m, data, tech_df)
@@ -183,7 +187,7 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade"],
     m.CO2_SingleActiveBlockConstr = pyo.Constraint(m.T, rule=co2_single_active_block_rule)
 
     # ------------------------------------------------------------------
-    # 6. Link block sales to Sale variable in CO2 fuel balance
+    # 6. Link block sales to variables in CO2 fuel balance
     # ------------------------------------------------------------------
     # Simplest version: enforce Sale == block sum for each time and location
     # (Extend later to multiple locations/time if desired)
@@ -194,6 +198,10 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade"],
     # def bind_sale_to_blocks(m, t):
     #     return m.Sale[area_export, co2_label, t] == m.CO2_TotalSell[t]
     # m.CO2_BlockBinding = pyo.Constraint(m.T, rule=bind_sale_to_blocks)
+
+    def bind_fuel_balance_rule(m, t):
+        return m.Generation['BiogasUpgrade', co2_label, t] >= m.CO2_TotalSell[t]
+    m.CO2_FuelBalanceBinding = pyo.Constraint(m.T, rule=bind_fuel_balance_rule)
 
 
     # ------------------------------------------------------------------
@@ -207,12 +215,13 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade"],
         technologies = techs_biogas
         fuels = [f for (g,f) in m.f_out if g in technologies] + [f for (g,f) in m.f_in if g in technologies]
         fuels = list(set(fuels))
-        areas = ['Skive', 'DK1']
+        areas = m.A
 
         # a) Fuel cost 
         imp_cost = sum(
             m.price_buy[a,e,t] * m.Buy[a,e,t]
-            for a in areas for e in fuels
+            for a in areas
+            for e in fuels
             if (a,e) in m.buyE
             for t in m.T
         )
@@ -225,7 +234,8 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["BiogasUpgrade"],
         # c) Variable O&M on all tech→energy links
         var_om = sum(
             m.Generation[g,e,t] * m.cvar[g]
-            for g in technologies for e in fuels
+            for g in technologies
+            for e in fuels
             if (g,e) in m.TechToEnergy
             for t in m.T
         )
