@@ -216,7 +216,8 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
         # a) Fuel cost 
         imp_cost = sum(
             m.price_buy[a,e,t] * m.Buy[a,e,t]
-            for (a,e) in m.buyE
+            # for (a,e) in m.buyE
+            for a in areas for e in fuels if (a,e) in m.buyE
             for t in m.T
         )
         # b) Sale revenue (modified to match block pricing, summed over time)
@@ -225,20 +226,33 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
             for t in m.T
             for b in m.BLOCKS
         )
-        # c) Variable O&M on all tech→energy links
+        # c) Variable O&M on all tech→energy links (only for technologies in biogas submodel)
         var_om = sum(
             m.Generation[g,e,t] * m.cvar[g]
-            for (g,e) in m.TechToEnergy
+            # for (g,e) in m.TechToEnergy
+            for g in technologies for e in fuels if (g,e) in m.TechToEnergy
             for t in m.T
         )
-        # d) Startup costs
+        # d) Startup costs (only for technologies in biogas submodel)
         startup = sum(
             m.Startcost[g,t]
-            for g in m.G
+            # for g in m.G
+            for g in technologies
             for t in m.T
         )
 
+        # Add a small but strictly positive transport cost to avoid unboundedness issues on Flow variables
+        EPS = 1e-9
+        transport_cost = sum(
+            EPS * m.Flow[area_in,a,'Electricity',t]
+            for t in m.T
+            for a in m.A
+            for area_in in m.A
+            if (area_in, a, 'Electricity') in m.flowset
+        )
+
         total_profit_expr = sale_rev - imp_cost - var_om - startup
+        total_profit_expr -= transport_cost
 
         return total_profit_expr
 
