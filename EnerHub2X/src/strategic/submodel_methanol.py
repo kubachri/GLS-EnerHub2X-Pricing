@@ -12,7 +12,7 @@ from src.model.constraints import add_constraints
 from src.model.objective import define_objective
 
 
-def build_methanol_model(cfg, supply, price_co2=None, techs=["CO2Compressor", "CO2Storage", "MethanolSynthesis"], co2_label='CO2'):
+def build_methanol_model(cfg, curr, demand_price_blocks, techs=["CO2Compressor", "CO2Storage", "MethanolSynthesis"], co2_label='CO2'):
     """
     Build a restricted Pyomo model for the methanol actor.
 
@@ -20,12 +20,12 @@ def build_methanol_model(cfg, supply, price_co2=None, techs=["CO2Compressor", "C
     ----------
     cfg : ModelConfig
         Full system configuration, but will be partially overridden.
-    supply : dict
+    curr : dict
         CO2 supply at each time step.
-        Format: {t: quantity, ...}
-    price_co2 : dict or None
-        Optional time-dependent CO2 price provided by the biogas submodel.
-        Format: {t: price_t, ...}. If None, CO2 price is set to zero.
+        Format: {tech: {t: quantity, ...}, ...}
+    demand_price_blocks : dict
+        Demand price blocks for each time step, observed from the supplier at the current iteration.
+        Format: {t: [{"block": int, "price": float, "capacity": float}, ...], ...}
     techs : list of str
         Names of technologies to include (default: ["CO2Compressor"]).
     co2_label : str
@@ -49,69 +49,112 @@ def build_methanol_model(cfg, supply, price_co2=None, techs=["CO2Compressor", "C
     if cfg.test_mode:
         data = slice_time_series(data, cfg.n_test)
 
-    print("\nAll data loaded for methanol submodel.\n")
+    print("All data loaded for methanol submodel.")
     
-    # Restrict technologies G
-    data['G'] = [g for g in data['G'] if g in techs]
+    # # Restrict technologies G
+    # data['G'] = [g for g in data['G'] if g in techs]
 
-    # Ensure CO2 is in the fuels set
-    if co2_label not in data['F']:
-        data['F'].append(co2_label)
+    # # Ensure CO2 is in the fuels set
+    # if co2_label not in data['F']:
+    #     data['F'].append(co2_label)
 
-    # Ensure price_buy has entries for CO2
-    area_import = "DK1"  # Assuming import area is DK1; adjust as needed
+    # # Ensure price_buy has entries for CO2
+    # area_import = "DK1"  # Assuming import area is DK1; adjust as needed
 
-    if 'price_buy' not in data:
-        data['price_buy'] = {}
-    for t in data['T']:
-        key = (area_import, co2_label, t)
-        if price_co2 is not None:
-            data['price_buy'][key] = price_co2.get(t, 0.0)
-        else:
-            data['price_buy'][key] = 0.0
+    # if 'price_buy' not in data:
+    #     data['price_buy'] = {}
+    # for t in data['T']:
+    #     key = (area_import, co2_label, t)
+    #     if price_co2 is not None:
+    #         data['price_buy'][key] = price_co2.get(t, 0.0)
+    #     else:
+    #         data['price_buy'][key] = 0.0
 
     # ------------------------------------------------------------------
     # 2. Assemble Pyomo model
     # ------------------------------------------------------------------
     m = pyo.ConcreteModel()
 
-    #DemandTarget
     m.Demand_Target = cfg.demand_target
-    if m.Demand_Target:
-        print("Running with a demand target ...\n")
-
-    #Green fuels
     m.GreenElectricity = cfg.green_electricity
-    if m.GreenElectricity:
-        print("Running with a green electrity from the grid (<20 EUR/MWh) ...\n")
-
-    #Electricity mandate
     m.ElectricityMandate = cfg.electricity_mandate
-    if m.ElectricityMandate:
-        print(f"Running with an electricity mandate of {m.ElectricityMandate*100}% ...\n")
-
-    #Electricity export limit
     m.ElProdToGrid = cfg.el_prod_to_grid
-    if m.ElProdToGrid:
-        print(f"Running with grid export to production ratio of {m.ElProdToGrid*100}% ...\n")
-
+    
     define_sets(m, data)
     define_params(m, data, tech_df)
     define_variables(m)
     add_constraints(m)
-    define_objective(m, cfg=cfg)
+
+    # define_objective(m, cfg=cfg)
 
     # ------------------------------------------------------------------
-    # 3. Limit CO2 supply (availability constraint)
+    # 3. Force CO2 supply (availability constraint)
     # ------------------------------------------------------------------
     # CO2 is available from biogas
+    supply = {t: sum(curr[tech].get(t, 0.0) for tech in curr) for t in m.T}
+
+    # Generation can only be up to the market supplied amount ()
     def co2_supply_limit_rule(m, t):
-        return m.Buy[area_import, co2_label, t] <= supply.get(t, 0.0)
+        return sum(
+            m.Generation[tech, co2_label, t] 
+            for tech in m.G
+            if (tech, co2_label) in m.TechToEnergy
+            ) <= supply.get(t, 0.0)
+    
     m.CO2_SupplyLimit = pyo.Constraint(m.T, rule=co2_supply_limit_rule)
 
-    # # Generation of CO2 is limited by the supplied quantity
-    # def co2_generation_limit_rule(m, t):
-    #     return sum(m.Generation[g, co2_label, t] for g in m.G if (g, co2_label) in m.TechToEnergy) <= supply.get(t, 0.0)
-    # m.CO2_GenerationLimit = pyo.Constraint(m.T, rule=co2_generation_limit_rule)
+
+    # ------------------------------------------------------------------
+    # . Modify objective to only consider methanol technologies
+    # ------------------------------------------------------------------
+    def methanol_objective(m):
+
+        # Reuse the existing "cost" pieces generated by define_objective()
+        # but here we rebuild a custom objective.
+
+        technologies = techs
+        fuels = list(set([f for (g,f) in m.f_out if g in technologies] + [f for (g,f) in m.f_in if g in technologies]))
+        areas = m.A
+
+        # a) Fuel cost 
+        imp_cost = sum(
+            m.price_buy[a,e,t] * m.Buy[a,e,t]
+            # for (a,e) in m.buyE
+            for a in areas for e in fuels if (a,e) in m.buyE
+            for t in m.T
+        )
+        # b) CO2 cost (modified to match block pricing, summed over time)
+        co2_cost = 0
+
+        # c) Variable O&M on all tech→energy links (only for technologies in biogas submodel)
+        var_om = sum(
+            m.Generation[g,e,t] * m.cvar[g]
+            # for (g,e) in m.TechToEnergy
+            for g in technologies for e in fuels if (g,e) in m.TechToEnergy
+            for t in m.T
+        )
+        # d) Startup costs (only for technologies in biogas submodel)
+        startup = sum(
+            m.Startcost[g,t]
+            # for g in m.G
+            for g in technologies
+            for t in m.T
+        )
+        # e) Slack penalties (both import‐slack and export‐slack)
+        slack_sum = (
+            sum(m.SlackDemandImport[a, e, t] + m.SlackDemandExport[a, e, t] for (a, e, t) in m.DemandSet)
+            + sum(m.SlackTarget[s, f] for (s, f) in m.DemandFuel)
+        )
+
+        objective = co2_cost + imp_cost + var_om + startup + cfg.penalty * slack_sum
+
+        return objective
+
+    m.Obj = pyo.Objective(rule=methanol_objective, sense=pyo.minimize)
+
+
+    # Inspect Buy and Sale variables: which are defined
+    print("Sale variable keys:", list(m.Sale.keys()))
+    print("Buy variable keys:", list(m.Buy.keys()))
 
     return m

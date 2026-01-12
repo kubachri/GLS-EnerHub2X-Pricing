@@ -81,28 +81,13 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
     # 2. Assemble Pyomo model
     # ------------------------------------------------------------------
     m = pyo.ConcreteModel()
-    cfg.demand_target = False  # Disable demand target for biogas submodel
 
-    #DemandTarget
+    # cfg.demand_target = False  # Disable demand target for biogas submodel
     m.Demand_Target = cfg.demand_target
-    if m.Demand_Target:
-        print("Running with a demand target ...\n")
-
-    #Green fuels
     m.GreenElectricity = cfg.green_electricity
-    if m.GreenElectricity:
-        print("Running with a green electrity from the grid (<20 EUR/MWh) ...\n")
-
-    #Electricity mandate
     m.ElectricityMandate = cfg.electricity_mandate
-    if m.ElectricityMandate:
-        print(f"Running with an electricity mandate of {m.ElectricityMandate*100}% ...\n")
-
-    #Electricity export limit
     m.ElProdToGrid = cfg.el_prod_to_grid
-    if m.ElProdToGrid:
-        print(f"Running with grid export to production ratio of {m.ElProdToGrid*100}% ...\n")
-
+    
     define_sets(m, data)
     define_params(m, data, tech_df)
     define_variables(m)
@@ -241,18 +226,18 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
             for t in m.T
         )
 
-        # Add a small but strictly positive transport cost to avoid unboundedness issues on Flow variables
-        EPS = 1e-9
-        transport_cost = sum(
-            EPS * m.Flow[area_in,a,'Electricity',t]
-            for t in m.T
-            for a in m.A
-            for area_in in m.A
-            if (area_in, a, 'Electricity') in m.flowset
-        )
+        # # Add a small but strictly positive transport cost to avoid unboundedness issues on Flow variables
+        # EPS = 1e-9
+        # transport_cost = sum(
+        #     EPS * m.Flow[area_in,a,'Electricity',t]
+        #     for t in m.T
+        #     for a in m.A
+        #     for area_in in m.A
+        #     if (area_in, a, 'Electricity') in m.flowset
+        # )
 
         total_profit_expr = sale_rev - imp_cost - var_om - startup
-        total_profit_expr -= transport_cost
+        # total_profit_expr -= transport_cost
 
         return total_profit_expr
 

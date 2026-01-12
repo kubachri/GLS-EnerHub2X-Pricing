@@ -25,10 +25,10 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
     # ------------------------------------------------------------
     # 1. INITIALIZATION PHASE
     # ------------------------------------------------------------
-    print("[INFO] Building and solving initial centralized model...")
+    print("Building and solving initial centralized model...")
     base_model = silent_build_model(cfg)  # Avoid prints
 
-    print("[INFO] Centralized baseline solve completed.")
+    print("Centralized baseline solve completed.")
 
     # Mapping tech -> area
     tech_to_area = {tech: area for (area, tech) in base_model.location}
@@ -50,7 +50,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
             gen_key = (tech, co2_label, t) if (tech, co2_label) in base_model.f_out else None
             curr[tech][t] = value(base_model.Generation[gen_key]) if gen_key in base_model.Generation else 0.0
 
-    print(f"\n[INFO] Strategic suppliers: {strategic_suppliers}")
+    print(f"\nStrategic suppliers: {strategic_suppliers}")
     print(f"Initial strategy (total CO2 supply): {sum(curr[tech][t] for tech in curr for t in curr[tech])}")
 
     # Extract CO2 use (demand) and duals (willingness to pay) for curve construction
@@ -85,17 +85,18 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
         for i, block in enumerate(demand_price_blocks[t]):
             block['block'] = i + 1  # Re-index blocks
 
-    print(f"\n[INFO] Strategies and demand curves initialized.")
+    print(f"\nStrategies and demand curves initialized.")
 
     # ------------------------------------------------------------ 
     # 2. BEST-RESPONSE ITERATION LOOP
     # ------------------------------------------------------------
     for iteration in range(1, max_iter+1):
-        print(f"\n----- Iteration {iteration} -----")
+        print(f"\n----- Iteration {iteration} -----\n")
         max_change = 0.0
 
         # Optimize supply-side submodel (biogas)
         # Assuming only one strategic supplier for simplicity; extend as needed
+        print("Solving biogas submodel...")
         biogas_submodel = solve_biogas_submodel(cfg, demand_price_blocks)
 
         # _fix_competitor_sales(biogas_submodel, tech, strategic_suppliers, tech_to_area, curr, co2_label)
@@ -124,14 +125,15 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
                 print(f"[WARN] Mismatch in total CO2 sell at time {t}: computed={co2_sell}, model={value(biogas_submodel.CO2_TotalSell[t])}")
 
         # Check convergence
-        print(f"[ITER {iteration}] Max change = {max_change:.6f}")
+        print(f"\n[ITER {iteration}] Max change = {max_change:.6f}\n")
         if max_change < tol:
             print(f"\n[INFO] Converged after {iteration} iterations (tol={tol}).\n")
             print("\n================= Cournot Loop Completed =================\n")
             break
 
         # Optimize demand-side submodel (methanol) for next iteration
-        methanol_submodel = build_methanol_model(cfg, curr, dummy_blocks)
+        print("Solving methanol submodel...")
+        methanol_submodel = build_methanol_model(cfg, curr, demand_price_blocks)
         methanol_submodel.dual = Suffix(direction=Suffix.IMPORT)
         solver = SolverFactory('gurobi_persistent')
         solver.solve(methanol_submodel, tee=False)
@@ -153,14 +155,14 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
     # ------------------------------------------------------------
     # 3. FINALIZATION PHASE
     # ------------------------------------------------------------
-    # print("[INFO] Building final model with fixed strategic sales...")
+    # print("Building final model with fixed strategic sales...")
     # final_model = silent_build_model(cfg)
     # final_model.dual = Suffix(direction=Suffix.IMPORT)
 
     # # Fix all strategic suppliers' sales
     # _fix_all_sales(final_model, strategic_suppliers, tech_to_area, curr, co2_label)
 
-    # print("\n[INFO] Solving final full model (MIP)...\n")
+    # print("\nSolving final full model (MIP)...\n")
     # final_solver = SolverFactory('gurobi_persistent')
     # final_solver.set_instance(final_model, symbolic_solver_labels=True)
     # final_solver.options['MIPGap'] = 0.05
@@ -322,8 +324,8 @@ def solve_biogas_submodel(cfg, demand_price_blocks):
         mip_result = solver.solve(biogas_model, tee=True)
         term = mip_result.solver.termination_condition
 
-    print(f"\n→ Initial termination condition: {term}")
-    print("\nMIP solve finished.\n")
+    # print(f"\n→ Initial termination condition: {term}")
+    # print("\nMIP solve finished.\n")
 
     # Handle the ambiguous case and retry
     if term == TerminationCondition.infeasibleOrUnbounded:
@@ -382,7 +384,7 @@ def solve_biogas_submodel(cfg, demand_price_blocks):
                     f"   → Pyomo: {pyomo_var.name if pyomo_var is not None else '??'}")
         return
     elif term == TerminationCondition.optimal:
-        print("✔ Model solved to optimality.\n")
+        print("✔ Model solved to optimality.")
     else:
         return (f"‼️ Unexpected termination condition: {term}")
     
