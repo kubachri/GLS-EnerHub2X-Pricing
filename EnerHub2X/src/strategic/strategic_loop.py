@@ -1,6 +1,6 @@
 # src/strategic/strategic_loop.py
 
-from pyomo.environ import value, SolverFactory, Suffix, Objective, maximize
+from pyomo.environ import value, SolverFactory, Suffix, Objective, maximize, Var
 from src.model.builder import build_model
 from src.config import ModelConfig
 import io
@@ -10,6 +10,7 @@ from src.strategic.submodel_methanol import build_methanol_model  # Assuming you
 
 from pyomo.environ import Var, Binary
 from pyomo.environ import TransformationFactory
+from pyomo.opt import TerminationCondition
 
 def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label='CO2'):
     """
@@ -23,7 +24,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
     # 1. INITIALIZATION PHASE
     # ------------------------------------------------------------
     print("[INFO] Building and solving initial centralized model...")
-    base_model = silent_build_model(cfg)  # Use silent_build_model to avoid prints
+    base_model = silent_build_model(cfg)  # Avoid prints
 
     print("[INFO] Centralized baseline solve completed.")
 
@@ -82,7 +83,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
         for i, block in enumerate(demand_price_blocks[t]):
             block['block'] = i + 1  # Re-index blocks
 
-    print(f"\n[INFO] Strategies and demand curves intialized.")
+    print(f"\n[INFO] Strategies and demand curves initialized.")
 
     # ------------------------------------------------------------ 
     # 2. BEST-RESPONSE ITERATION LOOP
@@ -93,14 +94,12 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
 
         # Optimize supply-side submodel (biogas)
         # Assuming only one strategic supplier for simplicity; extend as needed
-        biogas_submodel = build_biogas_model(cfg, demand_price_blocks)
-        biogas_submodel.dual = Suffix(direction=Suffix.IMPORT)
-        solver.solve(biogas_submodel, tee=False)
+        biogas_submodel = solve_biogas_submodel(cfg, demand_price_blocks)
 
         # _fix_competitor_sales(biogas_submodel, tech, strategic_suppliers, tech_to_area, curr, co2_label)
 
         # Extract and update the supplier's best response
-        for t in biogas_submodel.T:
+        for t in base_model.T:
 
             # co2_sell = value(biogas_submodel.CO2_TotalSell[t]) if t in biogas_submodel.CO2_TotalSell else 0.0
             # co2_price = value(biogas_submodel.CO2_MarketPrice[t]) if t in biogas_submodel.CO2_MarketPrice else 0.0
@@ -108,8 +107,8 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
             co2_sell = 0.0
             for tech in strategic_suppliers:
                 # Use Generation for CO2-producing techs as proxy for sales
-                gen_key = (tech, co2_label, t) if (tech, co2_label) in biogas_submodel.f_out else None
-                new_val = value(biogas_submodel.Generation[gen_key]) if gen_key in biogas_submodel.Generation else 0.0
+                gen_key = (tech, co2_label, t) if (tech, co2_label) in base_model.f_out else None
+                new_val = value(biogas_submodel.Generation[gen_key]) if gen_key in base_model.Generation else 0.0
                 old_val = curr[tech].get(t, 0.0)
 
                 updated = damping * new_val + (1 - damping) * old_val
@@ -132,6 +131,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
         # Optimize demand-side submodel (methanol) for next iteration
         methanol_submodel = build_methanol_model(cfg, curr, dummy_blocks)
         methanol_submodel.dual = Suffix(direction=Suffix.IMPORT)
+        solver = SolverFactory('gurobi_persistent')
         solver.solve(methanol_submodel, tee=False)
 
         demand_price_blocks = {}
@@ -308,3 +308,101 @@ def silent_build_model(cfg):
         print("LP solve finished.\n")
 
     return model
+
+def solve_biogas_submodel(cfg, demand_price_blocks):
+    biogas_model = build_biogas_model(cfg, demand_price_blocks)
+
+    biogas_model.dual = Suffix(direction=Suffix.IMPORT)
+
+    solver = SolverFactory('gurobi_persistent')
+    solver.set_instance(biogas_model, symbolic_solver_labels=True)
+    solver.options['MIPGap'] = 0.05
+    mip_result = solver.solve(biogas_model, tee=True)
+    term = mip_result.solver.termination_condition
+
+    print(f"\n→ Initial termination condition: {term}")
+    print("\nMIP solve finished.\n")
+
+    # Handle the ambiguous case and retry
+    if term == TerminationCondition.infeasibleOrUnbounded:
+        print("⚠ Ambiguous (INF_OR_UNBD). Retrying with DualReductions=0 …")
+        solver.options['DualReductions'] = 0
+        solver.reset()                    # clear the persistent state
+        retry_result = solver.solve(biogas_model, tee=True)
+        term = retry_result.solver.termination_condition
+        print(f"→ New termination condition: {term}")
+
+    # Now term is either INFEASIBLE, UNBOUNDED, or OPTIMAL/OTHER
+    if term == TerminationCondition.infeasible:
+        print("✘ Model is infeasible. Extracting IIS …")
+        grb = solver._solver_model
+        grb.computeIIS()
+        grb.write("model_iis.ilp")
+        print(" → IIS written to model.ilp.iis.")
+    elif term == TerminationCondition.unbounded:
+        print("⚠ MIP is unbounded (with integer vars).  → Relaxing integrality to extract a ray…")
+
+        # --- 1) Rebuild the model (fresh copy) ---
+        lp_model = build_model(cfg)
+        lp_model.name = biogas_model.name + "_LPrelaxed"
+
+        # --- 2) Relax all integer (incl. binary) variables to continuous ---
+        TransformationFactory('core.relax_integer_vars').apply_to(lp_model)
+
+        # --- 3) Set solver options for “true” unbounded diagnosis ---
+        lp_solver = SolverFactory('gurobi_persistent')
+        lp_solver.set_instance(lp_model, symbolic_solver_labels=True)
+        lp_solver.options['DualReductions'] = 0   # force a clean unbounded vs infeasible test
+        lp_solver.options['InfUnbdInfo']   = 1   # request the ray
+
+        # --- 4) Solve the continuous LP ---
+        lp_result = lp_solver.solve(tee=True)
+        lp_term   = lp_result.solver.termination_condition
+        print(f"→ LP relaxation termination: {lp_term}")
+
+        if lp_term == TerminationCondition.unbounded:
+            grb_lp   = lp_solver._solver_model
+            ray_coef = grb_lp.UnbdRay
+            vars_lp  = grb_lp.getVars()
+
+            # Invert Pyomo's internal map
+            inv_map = {
+                solver_var: pyomo_var
+                for pyomo_var, solver_var in lp_solver._pyomo_var_to_solver_var_map.items()
+            }
+
+            print("\nNon-zero components of the unbounded ray (var : direction) and their Pyomo names:")
+            for solver_var, coeff in zip(vars_lp, ray_coef):
+                if abs(coeff) < 1e-8:
+                    continue
+
+                pyomo_var = inv_map.get(solver_var, None)
+                print(f"  {solver_var.VarName:30s} : {coeff: .6e}"
+                    f"   → Pyomo: {pyomo_var.name if pyomo_var is not None else '??'}")
+        return lp_model
+    elif term == TerminationCondition.optimal:
+        print("✔ Model solved to optimality.\n")
+    else:
+        return (f"‼️ Unexpected termination condition: {term}")
+    
+    # Now you know you have a valid solution
+    mip_obj = value(biogas_model.Obj)
+    print(f"✔ MIP objective (total cost) = {mip_obj:,.2f}")
+
+    # After solving the MIP, but before fixing binaries:
+    for v in biogas_model.component_data_objects(Var, descend_into=True):
+        if v.domain is Binary and v.value is not None:
+            v.fix(v.value)
+
+    print("\nRelaxing integer vars → pure LP …\n")
+    TransformationFactory('core.relax_integer_vars').apply_to(biogas_model)
+
+    # 5) Clear any old duals, then re‐solve as an LP to get duals
+    print("Re‐solving as an LP to extract duals …\n")
+    lp_solver = SolverFactory('gurobi')
+    lp_result = lp_solver.solve(biogas_model, tee=False, suffixes=['dual'])
+    lp_obj = value(biogas_model.Obj)
+    print(f"→ LP objective (continuous, binaries fixed) = {lp_obj:,.2f}\n")
+    print("LP solve finished.\n")
+
+    return biogas_model

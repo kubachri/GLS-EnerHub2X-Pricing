@@ -21,7 +21,7 @@ def build_methanol_model(cfg, supply, price_co2=None, techs=["CO2Compressor", "C
     cfg : ModelConfig
         Full system configuration, but will be partially overridden.
     supply : dict
-        CO2Comp supply at each time step.
+        CO2 supply at each time step.
         Format: {t: quantity, ...}
     price_co2 : dict or None
         Optional time-dependent CO2 price provided by the biogas submodel.
@@ -29,7 +29,7 @@ def build_methanol_model(cfg, supply, price_co2=None, techs=["CO2Compressor", "C
     techs : list of str
         Names of technologies to include (default: ["MethanolSynthesis"]).
     co2_label : str
-        Fuel name used in the model (default: 'CO2Comp').
+        Fuel name used in the model (default: 'CO2').
 
     Returns
     -------
@@ -104,12 +104,12 @@ def build_methanol_model(cfg, supply, price_co2=None, techs=["CO2Compressor", "C
     # ------------------------------------------------------------------
     # 3. Limit CO2 supply (availability constraint)
     # ------------------------------------------------------------------
-    # CO2Comp is available from biogas
+    # CO2 is available from biogas
     def co2_supply_limit_rule(m, t):
         return m.Buy[area_import, co2_label, t] <= supply.get(t, 0.0)
     m.CO2_SupplyLimit = pyo.Constraint(m.T, rule=co2_supply_limit_rule)
 
-    # # Generation of CO2Comp is limited by the supplied quantity
+    # # Generation of CO2 is limited by the supplied quantity
     # def co2_generation_limit_rule(m, t):
     #     return sum(m.Generation[g, co2_label, t] for g in m.G if (g, co2_label) in m.TechToEnergy) <= supply.get(t, 0.0)
     # m.CO2_GenerationLimit = pyo.Constraint(m.T, rule=co2_generation_limit_rule)

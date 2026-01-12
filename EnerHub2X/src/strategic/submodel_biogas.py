@@ -111,6 +111,9 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
     define_variables(m)
     add_constraints(m)
     
+    # Fix unboundedness
+    
+    
     # # Restrict technologies G
     # m.G = pyo.Set(initialize=[g for g in data['G'] if g in techs_biogas], within=m.G)
     # m.G_s = pyo.Set(initialize=[g for g in data['G_s'] if g in techs_biogas], within=m.G_s)
@@ -200,7 +203,7 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
     # m.CO2_BlockBinding = pyo.Constraint(m.T, rule=bind_sale_to_blocks)
 
     def bind_fuel_balance_rule(m, t):
-        return m.Generation['BiogasUpgrade', co2_label, t] >= m.CO2_TotalSell[t]
+        return m.Generation['BiogasUpgrade', co2_label, t] == m.CO2_TotalSell[t]
     m.CO2_FuelBalanceBinding = pyo.Constraint(m.T, rule=bind_fuel_balance_rule)
 
 
@@ -213,8 +216,7 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
         # but here we rebuild a custom objective.
 
         technologies = techs_biogas
-        fuels = [f for (g,f) in m.f_out if g in technologies] + [f for (g,f) in m.f_in if g in technologies]
-        fuels = list(set(fuels))
+        fuels = list(set([f for (g,f) in m.f_out if g in technologies] + [f for (g,f) in m.f_in if g in technologies]))
         areas = m.A
 
         # a) Fuel cost 
