@@ -11,6 +11,8 @@ from src.strategic.submodel_methanol import build_methanol_model  # Assuming you
 from pyomo.environ import Var, Binary
 from pyomo.environ import TransformationFactory
 from pyomo.opt import TerminationCondition
+import math
+
 
 def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label='CO2'):
     """
@@ -99,7 +101,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=30, damping=0.6, co2_label=
         # _fix_competitor_sales(biogas_submodel, tech, strategic_suppliers, tech_to_area, curr, co2_label)
 
         # Extract and update the supplier's best response
-        for t in base_model.T:
+        for t in biogas_submodel.T:
 
             # co2_sell = value(biogas_submodel.CO2_TotalSell[t]) if t in biogas_submodel.CO2_TotalSell else 0.0
             # co2_price = value(biogas_submodel.CO2_MarketPrice[t]) if t in biogas_submodel.CO2_MarketPrice else 0.0
@@ -310,15 +312,15 @@ def silent_build_model(cfg):
     return model
 
 def solve_biogas_submodel(cfg, demand_price_blocks):
-    biogas_model = build_biogas_model(cfg, demand_price_blocks)
-
-    biogas_model.dual = Suffix(direction=Suffix.IMPORT)
-
-    solver = SolverFactory('gurobi_persistent')
-    solver.set_instance(biogas_model, symbolic_solver_labels=True)
-    solver.options['MIPGap'] = 0.05
-    mip_result = solver.solve(biogas_model, tee=True)
-    term = mip_result.solver.termination_condition
+    f = io.StringIO()
+    with redirect_stdout(f):
+        biogas_model = build_biogas_model(cfg, demand_price_blocks)
+        biogas_model.dual = Suffix(direction=Suffix.IMPORT)
+        solver = SolverFactory('gurobi_persistent')
+        solver.set_instance(biogas_model, symbolic_solver_labels=True)
+        solver.options['MIPGap'] = 0.05
+        mip_result = solver.solve(biogas_model, tee=True)
+        term = mip_result.solver.termination_condition
 
     print(f"\n→ Initial termination condition: {term}")
     print("\nMIP solve finished.\n")
@@ -344,7 +346,6 @@ def solve_biogas_submodel(cfg, demand_price_blocks):
 
         # --- 1) Rebuild the model (fresh copy) ---
         lp_model = build_model(cfg)
-        lp_model.name = biogas_model.name + "_LPrelaxed"
 
         # --- 2) Relax all integer (incl. binary) variables to continuous ---
         TransformationFactory('core.relax_integer_vars').apply_to(lp_model)
@@ -379,7 +380,7 @@ def solve_biogas_submodel(cfg, demand_price_blocks):
                 pyomo_var = inv_map.get(solver_var, None)
                 print(f"  {solver_var.VarName:30s} : {coeff: .6e}"
                     f"   → Pyomo: {pyomo_var.name if pyomo_var is not None else '??'}")
-        return lp_model
+        return
     elif term == TerminationCondition.optimal:
         print("✔ Model solved to optimality.\n")
     else:
@@ -389,20 +390,26 @@ def solve_biogas_submodel(cfg, demand_price_blocks):
     mip_obj = value(biogas_model.Obj)
     print(f"✔ MIP objective (total cost) = {mip_obj:,.2f}")
 
-    # After solving the MIP, but before fixing binaries:
-    for v in biogas_model.component_data_objects(Var, descend_into=True):
-        if v.domain is Binary and v.value is not None:
-            v.fix(v.value)
+    # Assesment of variables
+    ARTIFICIAL_UB = 1e9
+    suspects = []
 
-    print("\nRelaxing integer vars → pure LP …\n")
-    TransformationFactory('core.relax_integer_vars').apply_to(biogas_model)
+    for v in biogas_model.component_objects(Var, active=True):
+        for idx in v:
+            var = v[idx]
+            if var.is_binary():
+                continue
+            else:
+                if var.ub is not None:
+                    val = value(var, exception=False)
+                    if val is not None and math.isfinite(val):
+                        if abs(val - var.ub) <= max(1e-3, 1e-6 * var.ub):
+                            suspects.append((var.name, idx, val, var.ub))
 
-    # 5) Clear any old duals, then re‐solve as an LP to get duals
-    print("Re‐solving as an LP to extract duals …\n")
-    lp_solver = SolverFactory('gurobi')
-    lp_result = lp_solver.solve(biogas_model, tee=False, suffixes=['dual'])
-    lp_obj = value(biogas_model.Obj)
-    print(f"→ LP objective (continuous, binaries fixed) = {lp_obj:,.2f}\n")
-    print("LP solve finished.\n")
+    if suspects:
+        print("Variables hitting upper bound:")
+        for name, idx, val, ub in suspects:
+            print(f"{name}{idx}: value={val}, ub={ub}")
+
 
     return biogas_model

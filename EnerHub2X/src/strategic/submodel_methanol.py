@@ -27,7 +27,7 @@ def build_methanol_model(cfg, supply, price_co2=None, techs=["CO2Compressor", "C
         Optional time-dependent CO2 price provided by the biogas submodel.
         Format: {t: price_t, ...}. If None, CO2 price is set to zero.
     techs : list of str
-        Names of technologies to include (default: ["MethanolSynthesis"]).
+        Names of technologies to include (default: ["CO2Compressor"]).
     co2_label : str
         Fuel name used in the model (default: 'CO2').
 

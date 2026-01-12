@@ -82,9 +82,6 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
     # ------------------------------------------------------------------
     m = pyo.ConcreteModel()
     cfg.demand_target = False  # Disable demand target for biogas submodel
-    cfg.green_electricity = False  # Disable green electricity for biogas submodel
-    cfg.electricity_mandate = 0.0  # Disable electricity mandate for biogas submodel
-    cfg.el_prod_to_grid = 0.0  # Disable electricity export limit for biogas submodel
 
     #DemandTarget
     m.Demand_Target = cfg.demand_target
@@ -110,10 +107,7 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
     define_params(m, data, tech_df)
     define_variables(m)
     add_constraints(m)
-    
-    # Fix unboundedness
-    
-    
+        
     # # Restrict technologies G
     # m.G = pyo.Set(initialize=[g for g in data['G'] if g in techs_biogas], within=m.G)
     # m.G_s = pyo.Set(initialize=[g for g in data['G_s'] if g in techs_biogas], within=m.G_s)
@@ -251,5 +245,16 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
     m.Obj = pyo.Objective(rule=biogas_profit_rule, sense=pyo.maximize)
 
 
+    # Fix unboundedness: set artificial upper bounds on positive variables
+    def fix_unboundedness(m):
+        big_number = 1e9
+        for v in m.component_data_objects(pyo.Var):
+            if v.is_integer() or v.is_binary():
+                continue
+            if v.lb is not None and v.lb >= 0:
+                v.setub(big_number)
+            elif v.ub is not None and v.ub <= 0:
+                v.setlb(-big_number)
+    # fix_unboundedness(m)
 
     return m
