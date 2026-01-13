@@ -67,6 +67,10 @@ def volume_final_soc(m, g):
 
 # 4) Energy balance equations
 def balance_rule(m, a, e, t):
+    # Skip CO2 balance if specified (for methanol submodel in strategic configuration)
+    if getattr(m, "SkipCO2Balance", False) and e == 'CO2':
+        return Constraint.Skip
+
     # 1) GAMS $‐guard: buyE(a,e) OR saleE(a,e) OR any tech at area a with (in or out) of e
     has_buy  = (a,e) in m.buyE
     has_sale = (a,e) in m.saleE

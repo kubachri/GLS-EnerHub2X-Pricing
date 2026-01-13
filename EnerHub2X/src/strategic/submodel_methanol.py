@@ -12,7 +12,7 @@ from src.model.constraints import add_constraints
 from src.model.objective import define_objective
 
 
-def build_methanol_model(cfg, curr, demand_price_blocks, techs=["CO2Compressor", "CO2Storage", "MethanolSynthesis"], co2_label='CO2'):
+def build_methanol_model(cfg, co2_supply, demand_price_blocks=None, techs=["CO2Compressor", "CO2Storage", "MethanolSynthesis"], co2_label='CO2'):
     """
     Build a restricted Pyomo model for the methanol actor.
 
@@ -20,9 +20,9 @@ def build_methanol_model(cfg, curr, demand_price_blocks, techs=["CO2Compressor",
     ----------
     cfg : ModelConfig
         Full system configuration, but will be partially overridden.
-    curr : dict
-        CO2 supply at each time step.
-        Format: {tech: {t: quantity, ...}, ...}
+    co2_supply : dict
+        CO2 available supply at each time step.
+        Format: {t: quantity, ...}
     demand_price_blocks : dict
         Demand price blocks for each time step, observed from the supplier at the current iteration.
         Format: {t: [{"block": int, "price": float, "capacity": float}, ...], ...}
@@ -58,17 +58,15 @@ def build_methanol_model(cfg, curr, demand_price_blocks, techs=["CO2Compressor",
     # if co2_label not in data['F']:
     #     data['F'].append(co2_label)
 
-    # # Ensure price_buy has entries for CO2
-    # area_import = "DK1"  # Assuming import area is DK1; adjust as needed
+    # Ensure price_buy has entries for CO2
+    area_import = "DK1"  # Assuming import area is DK1; adjust as needed
+    price_co2_external = 100 # Example external price for CO2
 
-    # if 'price_buy' not in data:
-    #     data['price_buy'] = {}
-    # for t in data['T']:
-    #     key = (area_import, co2_label, t)
-    #     if price_co2 is not None:
-    #         data['price_buy'][key] = price_co2.get(t, 0.0)
-    #     else:
-    #         data['price_buy'][key] = 0.0
+    if 'price_buy' not in data:
+        data['price_buy'] = {}
+    for t in data['T']:
+        key = (area_import, co2_label, t)
+        data['price_buy'][key] = price_co2_external
 
     # ------------------------------------------------------------------
     # 2. Assemble Pyomo model
@@ -79,6 +77,9 @@ def build_methanol_model(cfg, curr, demand_price_blocks, techs=["CO2Compressor",
     m.GreenElectricity = cfg.green_electricity
     m.ElectricityMandate = cfg.electricity_mandate
     m.ElProdToGrid = cfg.el_prod_to_grid
+
+    # Add a flag to disable generic CO2 balance constraint
+    m.SkipCO2Balance = True
     
     define_sets(m, data)
     define_params(m, data, tech_df)
@@ -87,21 +88,43 @@ def build_methanol_model(cfg, curr, demand_price_blocks, techs=["CO2Compressor",
 
     # define_objective(m, cfg=cfg)
 
+    # Inspect Buy and Sale variables: which are defined
+    print("Sale variable keys:", list(m.Sale.keys()))
+    print("Buy variable keys:", list(m.Buy.keys()))
+
     # ------------------------------------------------------------------
     # 3. Force CO2 supply (availability constraint)
     # ------------------------------------------------------------------
-    # CO2 is available from biogas
-    supply = {t: sum(curr[tech].get(t, 0.0) for tech in curr) for t in m.T}
-
+    # CO2 is available from biogas submodel supply: co2_supply[t] represents the supplied co2 quantity at time t to methanol plant
     # Generation can only be up to the market supplied amount ()
     def co2_supply_limit_rule(m, t):
         return sum(
-            m.Generation[tech, co2_label, t] 
-            for tech in m.G
-            if (tech, co2_label) in m.TechToEnergy
-            ) <= supply.get(t, 0.0)
+            m.Generation[g, co2_label, t] 
+            for g in m.G
+            if (g, co2_label) in m.f_out
+            ) <= co2_supply.get(t, 0.0)
     
     m.CO2_SupplyLimit = pyo.Constraint(m.T, rule=co2_supply_limit_rule)
+
+    # The generic balance_rule for CO2 has been disabled in add_constraints()
+    # Define CO2 balance constraint specifically for methanol submodel
+    def co2_balance_rule(m, t):
+        internal = sum(
+            m.Generation[g, co2_label, t]
+            for g in m.G
+            if (g, co2_label) in m.f_out
+        )
+
+        external = m.Buy[area_import, co2_label, t]
+        
+        demand = sum(
+            m.Fueluse[g, co2_label, t]
+            for g in m.G
+            if (g, co2_label) in m.f_in
+        )
+
+        return internal + external == demand
+    m.CO2_Balance = pyo.Constraint(m.T, rule=co2_balance_rule)
 
 
     # ------------------------------------------------------------------
@@ -116,7 +139,7 @@ def build_methanol_model(cfg, curr, demand_price_blocks, techs=["CO2Compressor",
         fuels = list(set([f for (g,f) in m.f_out if g in technologies] + [f for (g,f) in m.f_in if g in technologies]))
         areas = m.A
 
-        # a) Fuel cost 
+        # a) Fuel import cost 
         imp_cost = sum(
             m.price_buy[a,e,t] * m.Buy[a,e,t]
             # for (a,e) in m.buyE
@@ -124,7 +147,9 @@ def build_methanol_model(cfg, curr, demand_price_blocks, techs=["CO2Compressor",
             for t in m.T
         )
         # b) CO2 cost (modified to match block pricing, summed over time)
-        co2_cost = 0
+        # Should we define a cost for CO2 use in methanol production : Generation[]*biogas_market_price?
+        # But then the dual price might be imposed and not endogenous?
+        co2_cost = 0 
 
         # c) Variable O&M on all tech→energy links (only for technologies in biogas submodel)
         var_om = sum(
@@ -153,8 +178,5 @@ def build_methanol_model(cfg, curr, demand_price_blocks, techs=["CO2Compressor",
     m.Obj = pyo.Objective(rule=methanol_objective, sense=pyo.minimize)
 
 
-    # Inspect Buy and Sale variables: which are defined
-    print("Sale variable keys:", list(m.Sale.keys()))
-    print("Buy variable keys:", list(m.Buy.keys()))
 
     return m

@@ -64,7 +64,7 @@ def main():
     # ------------------------------
     if cfg.strategic:
         from src.strategic.strategic_loop import run_cournot
-        final_model, strategies = run_cournot(cfg, tol=1e-3, max_iter=40, damping=0.5, co2_label='CO2')
+        final_model, strategies = run_cournot(cfg)
         print("Final strategic model run completed...")
         print("Exporting final results ...")
         export_results(final_model, cfg)
