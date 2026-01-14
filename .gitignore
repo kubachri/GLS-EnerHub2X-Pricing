@@ -35,9 +35,6 @@ model_iis.ilp
 
 !Data.xlsx
 
-apps
-src/utils/results_io.py
-
 *.pdf
 
 # macOS junk
@@ -45,3 +42,12 @@ src/utils/results_io.py
 
 # Generated results
 EnerHub2X/results/
+
+# Local / private input data
+InputData/
+
+# Exploratory / analysis notebooks
+src/utils/results_analysis.ipynb
+
+# Notes
+Notes.txt
