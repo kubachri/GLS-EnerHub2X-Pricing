@@ -81,18 +81,22 @@ Carbon pricing enters the optimisation directly through:
 ## Workflow
 
 1. **Input preparation**  
-   All model inputs are provided via a single Excel file, including technologies, prices, demands, and time series.
+   All model inputs are provided via a single Excel file, including technologies, prices, demands, and time series. By default, the model uses the baseline scenario located in:
+   scenarios/Data_Baseline.xlsx
+   
+   This default is defined in `config.py` as:
+   DEFAULT_DATA_FILE = os.path.join(os.getcwd(), "scenarios", "Data_Baseline.xlsx")
 
-2. **Model build**  
+3. **Model build**  
    The Pyomo model is assembled modularly: sets → parameters → variables → constraints → objective.
 
-3. **MIP solve**  
+4. **MIP solve**  
    The mixed‑integer problem is solved using Gurobi.
 
-4. **LP re‑solve for pricing**  
+5. **LP re‑solve for pricing**  
    Integer variables are fixed, and the model is re‑solved as a linear program to extract dual values.
 
-5. **Export and diagnostics**  
+6. **Export and diagnostics**  
    Result and input files are exported to the "results" folder in Excel format.
 
 ## Model Architecture
@@ -117,10 +121,16 @@ Install Python dependencies using:
 
 pip install -r requirements.txt
 
-## Running the model
+## Running the model (via terminal)
 
-Basic execution (via terminal):
-**python run_model.py**
+### Single-scenario run (default)
+Running the model without specifying a data file executes the default baseline scenario:
+python model_run.py
+
+### Multiple-scenario run
+The model can be run in multi-scenario mode by iterating over all Excel files found in the `scenarios/` directory.
+python model_run.py --multiple_scenarios true
+In this mode, each Excel file in `scenarios/` is treated as an independent scenario and solved sequentially.
 
 Optional flags allow:
 - Short horizon test runs
@@ -128,7 +138,7 @@ Optional flags allow:
 - Enabling or disabling demand targets
 - Electricity import/export mandates
 - Sensitivity case execution
-- Running multiple scenarios at once (iterating)
+- Running multiple scenarios by iterating over all Excel files in the `scenarios/` folder
 
 ## Input Data
 
