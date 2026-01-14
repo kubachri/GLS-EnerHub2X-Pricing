@@ -14,7 +14,7 @@ from pyomo.opt import TerminationCondition
 import pandas as pd
 
 
-def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=10, damping=0.1, co2_label='CO2'):
+def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=15, damping=0.2, co2_label='CO2'):
     """
     Iterative Cournot best-response algorithm for CO2 market.
     Each strategic supplier adjusts its sale quantity given competitors' fixed quantities.
@@ -73,7 +73,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=10, damping=0.1, co2_label=
     # Block 3: Iteration-dependent, based on methanol CO2 demand
     # dummy_blocks = [
     #     {"block": 1, "price": 120.0, "capacity": 1.0},  # High price block
-    #     {"block": 2, "price": 70.0, "capacity": 1.0}   # Medium price block
+    #     {"block": 2, "price": 40.0, "capacity": 1.0}   # Medium price block
     # ]
     
     # Case B: NO external CO2 demand for biogas 
@@ -82,7 +82,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=10, damping=0.1, co2_label=
     # Case C: Hypothetical external CO2 demand for biogas - less competitive than methanol 
     # We do not want to use the external market to CREATE the competition but rather to cap it
     dummy_blocks = [
-        {"block": 1, "price": 40.0, "capacity": 1.0},
+        {"block": 1, "price": 40.0, "capacity": 2.0},
     ]
 
     demand_price_blocks = {}
