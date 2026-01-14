@@ -14,7 +14,7 @@ from pyomo.opt import TerminationCondition
 import pandas as pd
 
 
-def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=15, damping=0.1, co2_label='CO2'):
+def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=10, damping=0.1, co2_label='CO2'):
     """
     Iterative Cournot best-response algorithm for CO2 market.
     Each strategic supplier adjusts its sale quantity given competitors' fixed quantities.
@@ -66,14 +66,25 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=15, damping=0.1, co2_label=
     print(f"CO2 initial demand: {sum(co2_use.values())}, average price: {sum(co2_duals.values())/len(co2_duals):.2f}")
 
     # Construct basis demand_price_blocks with dummy blocks (same for all t, initialized once)
+
+    # Case A: Realistic - competitive external CO2 demand on the market (observed by biogass)
     # Block 1: High price, low capacity
     # Block 2: Medium price, medium capacity
     # Block 3: Iteration-dependent, based on methanol CO2 demand
-    dummy_blocks = [
-        {"block": 1, "price": 120.0, "capacity": 1.0},  # High price block
-        {"block": 2, "price": 70.0, "capacity": 1.0}   # Medium price block
-    ]
+    # dummy_blocks = [
+    #     {"block": 1, "price": 120.0, "capacity": 1.0},  # High price block
+    #     {"block": 2, "price": 70.0, "capacity": 1.0}   # Medium price block
+    # ]
     
+    # Case B: NO external CO2 demand for biogas 
+    # dummy_blocks = [] 
+
+    # Case C: Hypothetical external CO2 demand for biogas - less competitive than methanol 
+    # We do not want to use the external market to CREATE the competition but rather to cap it
+    dummy_blocks = [
+        {"block": 1, "price": 40.0, "capacity": 1.0},
+    ]
+
     demand_price_blocks = {}
     for t in base_model.T:
         capacity = co2_use.get(t, 0.0)
@@ -86,9 +97,9 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=15, damping=0.1, co2_label=
     print(f"\nStrategies and demand curves initialized.")
 
     # Initialize dataframe to track iteration results if needed
-    results_df = pd.DataFrame(columns=['Iteration', 'MaxChange', 'TotalCO2Supply', 'AvailableCO2Supply', 'TotalCO2Demand', 'AvgCO2Price', 'BiogasObj', 'MethanolObj'])
+    results_df = pd.DataFrame(columns=['Iteration', 'MaxChange', 'TotalCO2Supply', 'AvgCO2MarketPrice', 'AvailableCO2Supply', 'ObservedCO2Supply', 'TotalCO2Demand', 'AvgCO2Price', 'BiogasObj', 'MethanolObj'])
     results_df.set_index('Iteration', inplace=True)
-    results_df.loc[0] = [None, total_supply, None, sum(co2_use.values()), sum(co2_duals.values())/len(co2_duals), None, None]
+    results_df.loc[0] = [None, total_supply, None, None, None, sum(co2_use.values()), sum(co2_duals.values())/len(co2_duals), None, None]
 
     # ------------------------------------------------------------ 
     # 2. BEST-RESPONSE ITERATION LOOP
@@ -104,11 +115,12 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=15, damping=0.1, co2_label=
 
         # Extract and update the supplier's best response
         co2_sell = {}
+        co2_price = {}
         co2_supply = {}
         for t in biogas_submodel.T:
             # Extract optimal variables values
             co2_sell[t] = value(biogas_submodel.CO2_TotalSell[t]) if t in biogas_submodel.CO2_TotalSell else 0.0
-            co2_price = value(biogas_submodel.CO2_MarketPrice[t]) if t in biogas_submodel.CO2_MarketPrice else 0.0
+            co2_price[t] = value(biogas_submodel.CO2_MarketPrice[t]) if t in biogas_submodel.CO2_MarketPrice else 0.0
 
             # Compute available CO2 supply for methanol submodel (how much of it is sold to methanol?) = state variable
             cumulative_higher_demand = sum(blk['capacity'] for blk in demand_price_blocks[t] if blk['price'] > co2_duals[t])
@@ -117,9 +129,12 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=15, damping=0.1, co2_label=
             # Update current strategy with damping
             old_val = curr.get(t, 0.0)
             new_val = co2_supply[t]
-            curr[t] = damping * new_val + (1 - damping) * old_val
+            curr[t] = damping * old_val + (1 - damping) * new_val
 
             max_change = max(max_change, abs(curr[t] - old_val))
+
+        # Print biogas submodel results
+        print(f"→ Total CO2 sold by biogas: {sum(co2_sell.values())}, including to methanol plant: {sum(co2_supply.values())}")
 
         # Check convergence
         print(f"\n[ITER {iteration}] Max change = {max_change:.6f}\n")
@@ -130,7 +145,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=15, damping=0.1, co2_label=
     
         # Optimize demand-side submodel (methanol) for next iteration: available CO2 supply is fixed (after damping)
         print(f"Solving methanol submodel... (available supply from biogas = {sum(curr.values())})")
-        methanol_submodel, co2_duals, co2_use = solve_methanol_submodel(cfg, curr, demand_price_blocks)
+        methanol_submodel, co2_duals, co2_use = solve_methanol_submodel(cfg, curr)
 
         # Update demand_price_blocks for next iteration based on new CO2 demand
         demand_price_blocks = {}
@@ -144,10 +159,12 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=15, damping=0.1, co2_label=
 
         # Log iteration results
         results_df.loc[iteration] = [max_change,                                # Max change between iterations
-                                     sum(co2_sell.values()),                    # Total CO2 supply
+                                     sum(co2_sell.values()),                    # Total CO2 supply from biogas
+                                     sum(co2_price.values())/len(co2_price),    # Average CO2 market price for biogas
                                      sum(co2_supply.values()),                  # Available CO2 supply to methanol
-                                     sum(co2_use.values()),                     # Total CO2 demand
-                                     sum(co2_duals.values())/len(co2_duals),    # CO2 average price
+                                     sum(curr.values()),                        # Observed CO2 supply for methanol (after damping)
+                                     sum(co2_use.values()),                     # Total CO2 demand (internal)
+                                     sum(co2_duals.values())/len(co2_duals),    # CO2 average price (dual)
                                      value(biogas_submodel.Obj),                # Biogas objective
                                      value(methanol_submodel.Obj)               # Methanol objective
                                      ]
@@ -286,7 +303,7 @@ def solve_biogas_submodel(cfg, demand_price_blocks):
     return biogas_model
 
 
-def solve_methanol_submodel(cfg, co2_supply, demand_price_blocks, co2_label='CO2', strategic_demanders=["CO2Compressor", "CO2Storage", "MethanolSynthesis"]):
+def solve_methanol_submodel(cfg, co2_supply, demand_price_blocks=None, co2_label='CO2', strategic_demanders=["CO2Compressor", "CO2Storage", "MethanolSynthesis"]):
     f = io.StringIO()
     with redirect_stdout(f):          # temporarily hide all print() inside
         methanol_submodel = build_methanol_model(cfg, co2_supply, demand_price_blocks)
@@ -295,7 +312,6 @@ def solve_methanol_submodel(cfg, co2_supply, demand_price_blocks, co2_label='CO2
         solver.set_instance(methanol_submodel, symbolic_solver_labels=True)
         solver.options['MIPGap'] = 0.05
         mip_result = solver.solve(methanol_submodel, tee=True)
-        # solver.solve(methanol_submodel, tee=False)
 
     inspect_model(methanol_submodel, solver, mip_result)
 
@@ -313,15 +329,16 @@ def solve_methanol_submodel(cfg, co2_supply, demand_price_blocks, co2_label='CO2
     lp_obj = value(methanol_submodel.Obj)
     print(f"→ LP objective (continuous, binaries fixed) = {lp_obj:,.2f}")
 
-    # Extract CO2 use (demand) and duals (willingness to pay) for curve construction
-    co2_use = {t: 
-                sum(
-                    value(methanol_submodel.Fueluse[tech, co2_label, t]) 
-                    for tech in strategic_demanders
-                    if (tech, co2_label, t) in methanol_submodel.Fueluse
-                    )
-                for t in methanol_submodel.T 
-            }
+    # Extract CO2 use (demand for biogas) and duals (willingness to pay) for curve construction
+    # co2_use = {t: 
+    #             sum(
+    #                 value(methanol_submodel.Fueluse[tech, co2_label, t]) 
+    #                 for tech in strategic_demanders
+    #                 if (tech, co2_label, t) in methanol_submodel.Fueluse
+    #                 )
+    #             for t in methanol_submodel.T 
+    #         }
+    co2_use = {t: value(methanol_submodel.CO2_InternalUse[t]) for t in methanol_submodel.T}
     co2_duals = {t: abs(methanol_submodel.dual.get(methanol_submodel.CO2_Balance[t], 0.0)) for t in methanol_submodel.T}
 
     # Print summary

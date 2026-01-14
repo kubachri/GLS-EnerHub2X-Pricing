@@ -86,14 +86,8 @@ def build_methanol_model(cfg, co2_supply, demand_price_blocks=None, techs=["CO2C
     define_variables(m)
     add_constraints(m)
 
-    # define_objective(m, cfg=cfg)
-
-    # Inspect Buy and Sale variables: which are defined
-    print("Sale variable keys:", list(m.Sale.keys()))
-    print("Buy variable keys:", list(m.Buy.keys()))
-
     # ------------------------------------------------------------------
-    # 3. Force CO2 supply (availability constraint)
+    # 3. Define CO2 supply (availability constraint): from internal biogas generation or from external market
     # ------------------------------------------------------------------
     # CO2 is available from biogas submodel supply: co2_supply[t] represents the supplied co2 quantity at time t to methanol plant
     # Generation can only be up to the market supplied amount ()
@@ -126,9 +120,18 @@ def build_methanol_model(cfg, co2_supply, demand_price_blocks=None, techs=["CO2C
         return internal + external == demand
     m.CO2_Balance = pyo.Constraint(m.T, rule=co2_balance_rule)
 
+    # Allow to extract internal CO2 use after solving
+    def co2_internal_use_rule(m, t):
+        return sum(
+            m.Generation[g, co2_label, t]
+            for g in m.G
+            if (g, co2_label) in m.f_out
+        )
+    m.CO2_InternalUse = pyo.Expression(m.T, rule=co2_internal_use_rule)
+
 
     # ------------------------------------------------------------------
-    # . Modify objective to only consider methanol technologies
+    # 4. Modify objective to only consider methanol technologies
     # ------------------------------------------------------------------
     def methanol_objective(m):
 
