@@ -15,25 +15,9 @@ results/results.xlsx
 # Linear‐program files
 *.lp
 
-# Excel result files
-*.xlsx
-
-#data
-inc_data
-inc_data_CK
-inc_data_full
-inc_data_kasso
-inc_data_GLS
-Data_Excel
-GLSData.xlsm
-GLSData - NoBiomethane.xlsm
-NewDataFormat.xlsx
-
 extremes.csv
 
 model_iis.ilp
-
-!Data.xlsx
 
 *.pdf
 
@@ -51,3 +35,11 @@ src/utils/results_analysis.ipynb
 
 # Notes
 Notes.txt
+
+# Ignore all Excel files by default
+*.xlsx
+
+# Allow only tracked scenario input files
+!scenarios/
+!scenarios/Data_Baseline.xlsx
+!scenarios/Data_Sens_H2.xlsx
