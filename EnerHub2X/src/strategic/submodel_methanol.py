@@ -7,7 +7,9 @@ PSEUDO CODE - build_methanol_model() Function Overview
 
 PURPOSE:
   Build a restricted Pyomo optimization model for the methanol actor.
-  
+  Extends the centralized base model with limited CO2 exogenous internal supply and
+  unlimited external market availability. Limits cost minimization to methanol-specific
+  technologies. 
 
 ALGORITHM:
 
