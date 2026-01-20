@@ -1,4 +1,53 @@
 # src/strategic/submodel_biogas.py
+'''
+Docstring for EnerHub2X.src.strategic.submodel_biogas
+
+PSEUDO CODE - build_biogas_model() Function Overview
+=====================================================
+
+PURPOSE:
+  Build a restricted Pyomo optimization model for the biogas actor.
+  Extends the centralized base model with time-dependent CO2 demand pricing
+  and biogas-specific profit maximization.
+
+ALGORITHM:
+
+1. MODEL BUILDING
+    - Load full data and preprocess
+    - Create model and define sets, parameters, variables, constraints
+   
+2. CO2 DEMAND PRICE BLOCK STRUCTURE [CUSTOM - BIOGAS SPECIFIC]
+    - Load demand_price_blocks input: {time -> [ordered price blocks]}
+    - At each time, available blocks are characterized by price and capacity: {block_id: .., price: .., capacity: ..}
+
+3. CO2 MARKET CLEARING VARIABLES AND CONSTRAINTS [CUSTOM - BIOGAS SPECIFIC]
+    - Define variables and constraints to model market clearing via block selection 
+    - Allows for a non-quadratic formulation
+
+4. FUEL BALANCE BINDING [CUSTOM - BIOGAS SPECIFIC]
+    - Link BiogasUpgrade generation output to CO2 block sales
+    - Enables to link the endogenous CO2 sales to the fuel balance in the EnerHub2X central model
+
+5. CUSTOM BIOGAS PROFIT OBJECTIVE [CUSTOM - OVERRIDES BASE OBJECTIVE]
+   Instead of full system cost minimization:
+   
+   MAXIMIZE: sale_rev - imp_cost - var_om - startup
+   
+   Where:
+   - sale_rev: sum of block prices x volumes (from demand pricing)
+   - imp_cost: fuel purchase costs (Buy variables)
+   - var_om: variable O&M costs (Generation x cvar)
+   - startup: startup costs
+   
+   Scope: restricted to techs_biogas only (Digester, BiogasUpgrade, Boiler)
+
+DEVIATIONS FROM CENTRALIZED BASE MODEL:
+----------------------------------------
+✓ Exogenous time-dependant CO2 demand curve  (vs. endogenous demand from full system)
+✓ CO2 market implementation via block selection from demand curves (vs. free flows)
+✓ Endogenous time-dependant pricing of CO2 commodity (vs. free pricing)
+✓ Profit maximization limited for biogas actors (vs. for full system)
+'''
 
 import pyomo.environ as pyo
 from copy import deepcopy

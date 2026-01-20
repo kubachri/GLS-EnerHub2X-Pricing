@@ -1,4 +1,46 @@
 # src/strategic/submodel_methanol.py
+'''
+Docstring for EnerHub2X.src.strategic.submodel_methanol
+
+PSEUDO CODE - build_methanol_model() Function Overview
+=====================================================
+
+PURPOSE:
+  Build a restricted Pyomo optimization model for the methanol actor.
+  
+
+ALGORITHM:
+
+1. MODEL BUILDING
+    - Load full data and preprocess
+    - Create model and define sets, parameters, variables, constraints
+   
+2. CO2 SUPPLY DEFINITION [CUSTOM - METHANOL SPECIFIC]
+    - Define a CO2 price to enable imports from external market
+    - Exogenous CO2 supply input extracted from biogas submodel
+    - CO2 internal generation is limited to the supplied amount (announced from biogas submodel)
+      >> internal generation is usually converging towards the supplied amount (for optimality)
+    
+3. CO2 BALANCE CONSTRAINT [CUSTOM - METHANOL SPECIFIC]
+    - Override generic CO2 balance constraint
+    - Specifics for methanol submodel: internal generation + external buy = co2 demand
+    - Dual CO2 price value is extracted from this constraint in post-processing
+
+4. CUSTOM METHANOL PROFIT OBJECTIVE [CUSTOM - METHANOL SPECIFIC]
+    - Cost minimization (because methanol does not generate any revenue)
+    - Specifically import costs are taking into account CO2 imports
+
+   MINIMIZE: imp_cost + var_om + startup + cfg.penalty * slack_sum
+
+   Scope: restricted to methanol plant technologies only (CO2Compressor, CO2Storage, MethanolSynthesis)
+
+DEVIATIONS FROM CENTRALIZED BASE MODEL:
+----------------------------------------
+✓ CO2 supply (internal generation) is limited exogenously (vs. internal free flows)
+✓ CO2 can be imported from external market at a fixed price (vs. no imports available)
+✓ Dual price is dependent of a different balance constraint
+✓ Objective function is limited to methanol actors
+'''
 
 import pyomo.environ as pyo
 from copy import deepcopy
