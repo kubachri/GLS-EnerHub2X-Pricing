@@ -27,7 +27,7 @@ def parse_args():
     p.add_argument('--green_electricity', type=lambda x: x.lower() == 'true', help="restrict grid electricity buy to <20 €/MWh")
     p.add_argument('--electricity_mandate', type=float, help="restricts electricity imports to a percent of consumption each hour")
     p.add_argument('--el_prod_to_grid', type=float, help="restricts electricity exports to a percent of generation each hour")
-    p.add_argument('--multiple_scenarios', type=str, help="Run all Excel scenarios in 'scenarios' folder")
+    p.add_argument('--multiple_scenarios', action='store_true', help="Run all Excel scenarios in 'scenarios' folder")
     p.add_argument('--data_file', type=str, help="Path to single Excel scenario file")
 
     return p.parse_args()
@@ -218,7 +218,7 @@ def main():
     defaults = ModelConfig()
 
     if args.multiple_scenarios:
-        folder = Path(args.multiple_scenarios)
+        folder = Path("scenarios")
         files = sorted(folder.glob("*.xlsx"))
 
         for file in files:
