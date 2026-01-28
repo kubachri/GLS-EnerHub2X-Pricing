@@ -94,6 +94,11 @@ def build_methanol_model(cfg, co2_supply, demand_price_blocks=None, techs=["CO2C
         data = slice_time_series(data, cfg.n_test)
 
     print("All data loaded for methanol submodel.")
+
+    # Ensure methanol technologies are in the data
+    for tech in techs:
+        if tech not in data['G']:
+            techs.remove(tech)
     
     # # Restrict technologies G
     # data['G'] = [g for g in data['G'] if g in techs]

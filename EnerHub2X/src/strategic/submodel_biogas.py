@@ -106,6 +106,11 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
 
     print("All data loaded for biogas submodel.")
 
+    # Ensure biogas technologies are in the data
+    for tech in techs_biogas:
+        if tech not in data['G']:
+            techs_biogas.remove(tech)
+
     # # Ensure CO2 is in the fuels set for Sale variable definition
     # if co2_label not in data['F']:
     #     data['F'].append(co2_label)

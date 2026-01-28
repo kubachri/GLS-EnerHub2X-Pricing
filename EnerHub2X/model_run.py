@@ -64,12 +64,13 @@ def main():
     # ------------------------------
     if cfg.strategic:
         from src.strategic.strategic_loop import run_cournot
-        final_model, strategies = run_cournot(cfg)
+        final_model, results_summary = run_cournot(cfg)
         print("Final strategic model run completed...")
         print("Exporting final results ...")
-        export_results(final_model, cfg)
+        export_inputs(final_model, cfg)
+        export_results(final_model, cfg, additional_results=results_summary)
         return final_model
-   
+
     # ------------------------------
     # Standard run
     # ------------------------------

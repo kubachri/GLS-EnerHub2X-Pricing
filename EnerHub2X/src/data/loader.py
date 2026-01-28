@@ -6,6 +6,18 @@ import numpy as np
 from src.model.sensitivities import apply_sensitivity_overrides
 from src.utils.assign_hours_to_weeks import build_full_year_week_map
 
+# Base input file
+# input_file = "Data_MeOH_only.xlsx"
+
+# Different scenarios can be loaded by changing this variable
+# input_file = "Data_Baseline.xlsx"
+# input_file = "Data_BioFixed.xlsx"
+# input_file = "Data_H2.xlsx"
+# input_file = "Data_NoCO2Storage.xlsx"
+input_file = "Data_NoStorage.xlsx"
+# input_file = "Data_Transport.xlsx"
+
+
 def load_data(cfg):
     """
     Load all data for the Pyomo model from a single Excel workbook
@@ -13,7 +25,7 @@ def load_data(cfg):
     Returns the same `data` dict shape as before.
     """
     # Path to the Excel file (assumed in project root)
-    excel_path = os.path.join(os.getcwd(), "Data_MeOH_only.xlsx")
+    excel_path = os.path.join(os.getcwd(), input_file)
     if not os.path.isfile(excel_path):
         raise FileNotFoundError(f"Could not find Excel data file: {excel_path}")
 

@@ -14,7 +14,7 @@ from pyomo.opt import TerminationCondition
 import pandas as pd
 
 
-def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=15, damping=0.2, co2_label='CO2'):
+def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=30, damping=0.2, co2_label='CO2'):
     """
     Iterative Cournot best-response algorithm for CO2 market.
     Each strategic supplier adjusts its sale quantity given competitors' fixed quantities.
@@ -37,6 +37,14 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=15, damping=0.2, co2_label=
     # Retrieve strategic actors
     strategic_suppliers = ['BiogasUpgrade']
     strategic_demanders = ['CO2Compressor', 'CO2Storage', 'MethanolSynthesis']
+
+    # Ensure strategic actors are in the model
+    for tech in strategic_suppliers:
+        if tech not in base_model.G:
+            strategic_suppliers.remove(tech)
+    for tech in strategic_demanders:    
+        if tech not in base_model.G:
+            strategic_demanders.remove(tech)
 
     # Initialize supply strategies using CO2 generation (supply)
     curr = {} # supply current strategy
@@ -82,7 +90,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=15, damping=0.2, co2_label=
     # Case C: Hypothetical external CO2 demand for biogas - less competitive than methanol 
     # We do not want to use the external market to CREATE the competition but rather to cap it
     dummy_blocks = [
-        {"block": 1, "price": 40.0, "capacity": 2.0},
+        {"block": 1, "price": 40.0, "capacity": 5.0},
     ]
 
     demand_price_blocks = {}
@@ -187,7 +195,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-3, max_iter=15, damping=0.2, co2_label=
 
     # Compare results with centralized model
     
-    return curr
+    return methanol_submodel, results_df
 
 
 # ============================================================
