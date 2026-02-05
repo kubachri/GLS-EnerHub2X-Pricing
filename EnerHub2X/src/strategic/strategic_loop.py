@@ -1,5 +1,6 @@
 # src/strategic/strategic_loop.py
 
+import math
 from pyomo.environ import value, SolverFactory, Suffix, Objective, maximize, Var
 from src.model.builder import build_model
 from src.config import ModelConfig
@@ -14,7 +15,7 @@ from pyomo.opt import TerminationCondition
 import pandas as pd
 
 
-def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=30, damping=0.2, co2_label='CO2'):
+def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0.2, co2_label='CO2'):
     """
     Iterative Cournot best-response algorithm for CO2 market.
     Each strategic supplier adjusts its sale quantity given competitors' fixed quantities.
@@ -102,7 +103,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=30, damping=0.2, co2_label=
         for i, block in enumerate(demand_price_blocks[t]):
             block['block'] = i + 1  # Re-index blocks
 
-    print(f"\nStrategies and demand curves initialized.")
+    print(f"\nStrategies and demand curves initialized.\n")
 
     # Initialize dataframe to track iteration results if needed
     results_df = pd.DataFrame(columns=['Iteration', 'MaxChange', 'TotalCO2Supply', 'AvgCO2MarketPrice', 'AvailableCO2Supply', 'ObservedCO2Supply', 'TotalCO2Demand', 'AvgCO2Price', 'BiogasObj', 'MethanolObj'])
@@ -113,12 +114,12 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=30, damping=0.2, co2_label=
     # 2. BEST-RESPONSE ITERATION LOOP
     # ------------------------------------------------------------
     for iteration in range(1, max_iter+1):
-        print(f"\n----- Iteration {iteration} -----\n")
+        # print(f"----- Iteration {iteration} -----")
         max_change = 0.0
 
         # Optimize supply-side submodel (biogas)
         # Assuming only one strategic supplier for simplicity; extend as needed
-        print("Solving biogas submodel...")
+        # print("Solving biogas submodel...")
         biogas_submodel = solve_biogas_submodel(cfg, demand_price_blocks)
 
         # Extract and update the supplier's best response
@@ -142,17 +143,11 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=30, damping=0.2, co2_label=
             max_change = max(max_change, abs(curr[t] - old_val))
 
         # Print biogas submodel results
-        print(f"→ Total CO2 sold by biogas: {sum(co2_sell.values())}, including to methanol plant: {sum(co2_supply.values())}")
+        # print(f"→ Total CO2 sold by biogas: {sum(co2_sell.values())}, including to methanol plant: {sum(co2_supply.values())}")
 
-        # Check convergence
-        print(f"\n[ITER {iteration}] Max change = {max_change:.6f}\n")
-        if max_change < tol:
-            print(f"\n[INFO] Converged after {iteration} iterations (tol={tol}).\n")
-            print("\n================= Cournot Loop Completed =================\n")
-            break
     
         # Optimize demand-side submodel (methanol) for next iteration: available CO2 supply is fixed (after damping)
-        print(f"Solving methanol submodel... (available supply from biogas = {sum(curr.values())})")
+        # print(f"Solving methanol submodel... (available supply from biogas = {sum(curr.values())})")
         methanol_submodel, co2_duals, co2_use = solve_methanol_submodel(cfg, curr)
 
         # Update demand_price_blocks for next iteration based on new CO2 demand
@@ -166,16 +161,24 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=30, damping=0.2, co2_label=
                 block['block'] = i + 1  # Re-index blocks
 
         # Log iteration results
-        results_df.loc[iteration] = [max_change,                                # Max change between iterations
-                                     sum(co2_sell.values()),                    # Total CO2 supply from biogas
-                                     sum(co2_price.values())/len(co2_price),    # Average CO2 market price for biogas
-                                     sum(co2_supply.values()),                  # Available CO2 supply to methanol
-                                     sum(curr.values()),                        # Observed CO2 supply for methanol (after damping)
-                                     sum(co2_use.values()),                     # Total CO2 demand (internal)
-                                     sum(co2_duals.values())/len(co2_duals),    # CO2 average price (dual)
-                                     value(biogas_submodel.Obj),                # Biogas objective
-                                     value(methanol_submodel.Obj)               # Methanol objective
-                                     ]
+        results_df.loc[iteration] = [max_change,                               # Max change between iterations
+                                    sum(co2_sell.values()),                    # Total CO2 supply from biogas
+                                    sum(co2_price.values())/len(co2_price),    # Average CO2 market price for biogas
+                                    sum(co2_supply.values()),                  # Available CO2 supply to methanol
+                                    sum(curr.values()),                        # Observed CO2 supply for methanol (after damping)
+                                    sum(co2_use.values()),                     # Total CO2 demand (internal)
+                                    sum(co2_duals.values())/len(co2_duals),    # CO2 average price (dual)
+                                    value(biogas_submodel.Obj),                # Biogas objective
+                                    value(methanol_submodel.Obj)               # Methanol objective
+                                    ]
+        
+
+        # Check convergence
+        print(f"[ITER {iteration}] Max change = {max_change:.6f}")
+        if max_change < tol:
+            print(f"\n[INFO] Converged after {iteration} iterations (tol={tol}).\n")
+            print("\n================= Cournot Loop Completed =================\n")
+            break
 
     else:
         print("\n[WARN] Max iterations reached without full convergence.\n")
@@ -195,7 +198,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=30, damping=0.2, co2_label=
 
     # Compare results with centralized model
     
-    return methanol_submodel, results_df
+    return methanol_submodel, biogas_submodel, results_df
 
 
 # ============================================================
@@ -285,7 +288,7 @@ def solve_biogas_submodel(cfg, demand_price_blocks):
         solver.options['MIPGap'] = 0.05
         mip_result = solver.solve(biogas_model, tee=True)
         
-    mip_obj = inspect_model(biogas_model, solver, mip_result)
+        mip_obj = inspect_model(biogas_model, solver, mip_result)
 
     # # Assesment of variables when model is unbounded and artificially fixed
     # ARTIFICIAL_UB = 1e9
@@ -321,35 +324,41 @@ def solve_methanol_submodel(cfg, co2_supply, demand_price_blocks=None, co2_label
         solver.options['MIPGap'] = 0.05
         mip_result = solver.solve(methanol_submodel, tee=True)
 
-    inspect_model(methanol_submodel, solver, mip_result)
+        inspect_model(methanol_submodel, solver, mip_result)
 
-    # After solving the MIP, but before fixing binaries:
-    for v in methanol_submodel.component_data_objects(Var, descend_into=True):
-        if v.domain is Binary and v.value is not None:
-            v.fix(v.value)
+        # After solving the MIP, but before fixing binaries:
+        for v in methanol_submodel.component_data_objects(Var, descend_into=True):
+            if v.domain is Binary and v.value is not None:
+                v.fix(v.value)
 
-    # Relax integer vars → pure LP
-    TransformationFactory('core.relax_integer_vars').apply_to(methanol_submodel)
+        # Relax integer vars → pure LP
+        TransformationFactory('core.relax_integer_vars').apply_to(methanol_submodel)
 
-    # Clear any old duals, then re‐solve as an LP to get duals
-    lp_solver = SolverFactory('gurobi')
-    lp_result = lp_solver.solve(methanol_submodel, tee=False, suffixes=['dual'])
-    lp_obj = value(methanol_submodel.Obj)
-    print(f"→ LP objective (continuous, binaries fixed) = {lp_obj:,.2f}")
+        # Clear any old duals, then re‐solve as an LP to get duals
+        lp_solver = SolverFactory('gurobi')
+        lp_result = lp_solver.solve(methanol_submodel, tee=False, suffixes=['dual'])
+        lp_obj = value(methanol_submodel.Obj)
+        print(f"→ LP objective (continuous, binaries fixed) = {lp_obj:,.2f}")
 
-    # Extract CO2 use (demand for biogas) and duals (willingness to pay) for curve construction
-    # co2_use = {t: 
-    #             sum(
-    #                 value(methanol_submodel.Fueluse[tech, co2_label, t]) 
-    #                 for tech in strategic_demanders
-    #                 if (tech, co2_label, t) in methanol_submodel.Fueluse
-    #                 )
-    #             for t in methanol_submodel.T 
-    #         }
-    co2_use = {t: value(methanol_submodel.CO2_InternalUse[t]) for t in methanol_submodel.T}
-    co2_duals = {t: abs(methanol_submodel.dual.get(methanol_submodel.CO2_Balance[t], 0.0)) for t in methanol_submodel.T}
+        # Extract CO2 use (demand for biogas) and duals (willingness to pay) for curve construction
+        # co2_use = {t: 
+        #             sum(
+        #                 value(methanol_submodel.Fueluse[tech, co2_label, t]) 
+        #                 for tech in strategic_demanders
+        #                 if (tech, co2_label, t) in methanol_submodel.Fueluse
+        #                 )
+        #             for t in methanol_submodel.T 
+        #         }
+        co2_use = {t: value(methanol_submodel.CO2_InternalUse[t]) for t in methanol_submodel.T}
+        co2_duals = {t: abs(methanol_submodel.dual.get(methanol_submodel.CO2_Balance[t], 0.0)) for t in methanol_submodel.T}
 
-    # Print summary
-    print(f"→ Total CO2 demand and average price: {sum(co2_use.values())}, {sum(co2_duals.values())/len(co2_duals):.2f}")
+        # Print summary
+        print(f"→ Total CO2 demand and average price: {sum(co2_use.values())}, {sum(co2_duals.values())/len(co2_duals):.2f}")
 
     return methanol_submodel, co2_duals, co2_use
+
+
+def compare_submodels(methanol_submodel, biogas_submodel):
+    # Implement comparison logic as needed, e.g., comparing key variables, objectives, etc.
+    
+    pass

@@ -27,6 +27,7 @@ def parse_args():
     p.add_argument('--electricity_mandate', type=float, help="restricts electricity imports to a percent of consumption each hour")
     p.add_argument('--el_prod_to_grid', type=float, help="restricts electricity exports to a percent of generation each hour")
     p.add_argument('--strategic', action='store_true', help="Run strategic Cournot loop for CO2")
+    p.add_argument('--co2_market_price', type=float, help="CO2 market price when strategic config is on")
     return p.parse_args()
 
 def main():
@@ -48,7 +49,8 @@ def main():
         green_electricity=args.green_electricity if args.green_electricity is not None else defaults.green_electricity,
         electricity_mandate=args.electricity_mandate if args.electricity_mandate is not None else defaults.electricity_mandate,
         el_prod_to_grid=args.el_prod_to_grid if args.el_prod_to_grid is not None else defaults.el_prod_to_grid,
-        strategic=args.strategic if args.strategic is not None else defaults.strategic
+        strategic=args.strategic if args.strategic is not None else defaults.strategic,
+        co2_market_price=args.co2_market_price if args.co2_market_price is not None else defaults.co2_market_price
     )
 
     print("Building Pyomo model ...\n")
@@ -64,12 +66,16 @@ def main():
     # ------------------------------
     if cfg.strategic:
         from src.strategic.strategic_loop import run_cournot
-        final_model, results_summary = run_cournot(cfg)
+        final_methanol_submodel, final_biogas_submodel, results_summary = run_cournot(cfg)
         print("Final strategic model run completed...")
         print("Exporting final results ...")
-        export_inputs(final_model, cfg)
-        export_results(final_model, cfg, additional_results=results_summary)
-        return final_model
+        export_inputs(final_methanol_submodel, cfg)
+        export_results(final_methanol_submodel, cfg, additional_results=results_summary)
+        
+        elapsed = time.time() - start_time
+        print(f"Total elapsed time: {elapsed:.2f} seconds")
+
+        return final_methanol_submodel
 
     # ------------------------------
     # Standard run

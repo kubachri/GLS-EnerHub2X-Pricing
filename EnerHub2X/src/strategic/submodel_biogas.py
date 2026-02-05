@@ -136,7 +136,6 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
     # ------------------------------------------------------------------
     m = pyo.ConcreteModel()
 
-    # cfg.demand_target = False  # Disable demand target for biogas submodel
     m.Demand_Target = cfg.demand_target
     m.GreenElectricity = cfg.green_electricity
     m.ElectricityMandate = cfg.electricity_mandate

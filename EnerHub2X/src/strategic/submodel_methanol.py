@@ -109,7 +109,7 @@ def build_methanol_model(cfg, co2_supply, demand_price_blocks=None, techs=["CO2C
 
     # Ensure price_buy has entries for CO2
     area_import = "DK1"  # Assuming import area is DK1; adjust as needed
-    price_co2_external = 100 # Example external price for CO2
+    price_co2_external = cfg.co2_market_price
 
     if 'price_buy' not in data:
         data['price_buy'] = {}
