@@ -197,25 +197,42 @@ def load_data(cfg):
     # 8) PRICE (import/export)
     # -----------------------
 
-    # 1) Read so that the 10th Excel row (index 9) is your header
-    pr_df = xls.parse('Price', header=9) \
-            .dropna(how='all') \
-            .reset_index(drop=True)
+    # 1) Read raw Price sheet without headers
+    pr_raw = xls.parse('Price', header=None)
 
-    # 2) Keep only the real time‐rows (Hour starts with “T”)
-    pr_df = pr_df[pr_df['Hour'].astype(str).str.startswith('T')]
+    # 2) Drop fully empty rows
+    pr_raw = pr_raw.dropna(how='all').reset_index(drop=True)
 
-    # 3) Pick only the columns whose energy is in our fuels list
+    # 3) Auto-detect header row: first row containing "Hour"
+    header_idx = next(
+        i for i, row in pr_raw.iterrows()
+        if row.astype(str).str.strip().eq('Hour').any()
+    )
+
+    # 4) Build header
+    headers = pr_raw.iloc[header_idx].astype(str).tolist()
+
+    # 5) Slice data below header
+    pr_df = pr_raw.iloc[header_idx + 1:].copy()
+    pr_df.columns = headers
+
+    # 6) Keep only real time rows (Hour starts with "T")
+    pr_df = pr_df[
+        pr_df['Hour'].astype(str).str.startswith('T')
+    ].reset_index(drop=True)
+
+    # 7) Keep only price columns for fuels in the model
     price_cols = [
         col for col in pr_df.columns[1:]
-        if isinstance(col, str) and col.split('.')[1] in fuels
+        if isinstance(col, str)
+        and '.' in col
+        and col.split('.', 2)[1] in fuels
     ]
 
-    # 4) Slice to a smaller DataFrame you can inspect easily
     pr_df = pr_df[['Hour'] + price_cols]
 
-    # 5) Build price_buy / price_sell dicts from that filtered frame
-    price_buy  = {}
+    # 8) Build price dictionaries
+    price_buy = {}
     price_sell = {}
 
     for _, row in pr_df.iterrows():
@@ -225,11 +242,10 @@ def load_data(cfg):
             val = row[col]
             if pd.isna(val):
                 continue
-            key = (area, energy, hr)
             if direction == 'Import':
-                price_buy[key]  = float(val)
-            else:
-                price_sell[key] = float(val)
+                price_buy[(area, energy, hr)] = float(val)
+            elif direction == 'Export':
+                price_sell[(area, energy, hr)] = float(val)
     # # Apply carbon tax to electricity imports (120 gCO2eq/kWh in 2024)
     # price_buy = {
     #     (area, energy, time): (price + 0.12*cfg.carbon_tax if energy == "Electricity" else price)
