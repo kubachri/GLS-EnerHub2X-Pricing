@@ -3,14 +3,14 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 # === CONFIGURATION ===
-output_path = Path("C:/Users/chriko/Desktop/GLS-SUS-Optimal/Scenario_Analysis.xlsx")
+output_path = Path("Scenario_Analysis.xlsx")
 scenario_files = {
-    "Baseline":       "C:/Users/chriko/Desktop/GLS-SUS-Optimal/results/Results_Baseline.xlsx",
-    "NoStorageCO2":   "C:/Users/chriko/Desktop/GLS-SUS-Optimal/results/Results_Sens_NoCO2Storage.xlsx",
-    "NoStorageALL":   "C:/Users/chriko/Desktop/GLS-SUS-Optimal/results/Results_Sens_NoStorage.xlsx",
-    "H2":             "C:/Users/chriko/Desktop/GLS-SUS-Optimal/results/Results_Sens_H2.xlsx",
-    "BioFixed":       "C:/Users/chriko/Desktop/GLS-SUS-Optimal/results/Results_Sens_BioFixed.xlsx",
-    "CO2Trans":       "C:/Users/chriko/Desktop/GLS-SUS-Optimal/results/Results_Sens_Transport.xlsx"
+    "Baseline":       "results/Results_Baseline.xlsx",
+    "NoStorageCO2":   "results/Results_NoStorageCO2.xlsx",
+    "NoStorageALL":   "results/Results_NoStorageALL.xlsx",
+    "H2":             "results/Results_H2.xlsx",
+    "BioFixed":       "results/Results_BioFixed.xlsx",
+    "CO2Trans":       "results/Results_Transport.xlsx"
 }
 baseline_path = scenario_files["Baseline"]
 
