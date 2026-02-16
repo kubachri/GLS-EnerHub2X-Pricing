@@ -253,10 +253,10 @@ def load_data(cfg):
     # }
 
     # Apply carbon tax to NG usage (198 kgCO2eq/MWh and 50 EUR/tCO2 - 2030 Denmark)
-    price_buy = {
-        (area, energy, time): (price + 0.198*50 if energy == "NatGas" else price)
-        for (area, energy, time), price in price_buy.items()
-    }
+    # price_buy = {
+    #     (area, energy, time): (price + 0.198*50 if energy == "NatGas" else price)
+    #     for (area, energy, time), price in price_buy.items()
+    # }
 
     # price_sell = {
     #     (area, energy, time): (cfg.carbon_tax if energy == "CO2Comp" else price)
