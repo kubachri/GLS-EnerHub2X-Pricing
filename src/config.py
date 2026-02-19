@@ -19,4 +19,4 @@ class ModelConfig:
     @property
     def data_dir(self) -> str:
         root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        return os.path.join(root, self.data)
+        return os.path.join(root, self.data_file)
