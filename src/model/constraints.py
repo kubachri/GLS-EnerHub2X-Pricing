@@ -66,9 +66,9 @@ def volume_final_soc(m, g):
     return m.Volume[g, m.T.last()] == m.soc_init[g]
 
 # 4) Energy balance equations
-def balance_rule(m, a, e, t):
+def balance_rule(m, a, e, t, cfg):
     # Skip CO2 balance if specified (for methanol submodel in strategic configuration)
-    if getattr(m, "SkipCO2Balance", False) and e == 'CO2':
+    if getattr(m, "SkipCO2Balance", False) and e == cfg.co2_label:
         return Constraint.Skip
 
     # 1) GAMS $‐guard: buyE(a,e) OR saleE(a,e) OR any tech at area a with (in or out) of e
@@ -291,7 +291,7 @@ def target_demand_rule(m, step, area_fuel):
     )
     return total + m.SlackTarget[step, area_fuel] >= m.DemandTarget[step, area_fuel]
 
-def add_constraints(model):
+def add_constraints(model, cfg):
     model.Fuelmix = Constraint(model.f_in, model.T, rule=fuelmix_rule)
     model.Production = Constraint(model.f_out, model.T, rule=production_rule)
     model.ProductionStorage = Constraint(model.G_s, model.T, rule=storage_balance_rule)
@@ -301,7 +301,7 @@ def add_constraints(model):
     # model.DisChargingStorageMin = Constraint(model.G_s, model.T, rule=discharging_min)
     model.VolumeUpper = Constraint(model.G_s, model.T, rule=volume_upper_rule)
     model.TerminalSOC = Constraint(model.G_s, rule=volume_final_soc)
-    model.Balance = Constraint(model.A, model.F, model.T, rule=balance_rule)
+    model.Balance = Constraint(model.A, model.F, model.T, rule=lambda m,a,e,t: balance_rule(m,a,e,t,cfg))
     model.DemandTime = Constraint(model.DemandSet, rule=demand_time_rule)
     model.MaxBuy = Constraint(model.F, model.T, rule=max_buy_rule)
     model.MaxSale = Constraint(model.F, model.T, rule=max_sale_rule)

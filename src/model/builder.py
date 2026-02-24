@@ -63,7 +63,7 @@ def build_model(cfg: ModelConfig) -> ConcreteModel:
     define_sets(model, data)
     define_params(model, data, tech_df)
     define_variables(model)
-    add_constraints(model)
+    add_constraints(model, cfg=cfg)
     define_objective(model, cfg=cfg)
 
     # print("\n[DEBUG] Builder summary:")

@@ -16,6 +16,7 @@ class ModelConfig:
     el_prod_to_grid:        float   = 1.0       # it's the ratio of electricity exported/electricity produced in EH (limits grid exports)
     data_file:              str     = DEFAULT_DATA_FILE
     strategic:              bool    = False     # run strategic operation model
+    co2_label:              str     = 'CO2_Liq' # fuel name used in the strategic operation model
     co2_market_price:       float   = 150.0     # CO2 market price in strategic model
 
     @property

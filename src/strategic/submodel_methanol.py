@@ -56,7 +56,7 @@ from src.model.constraints import add_constraints
 from src.model.objective import define_objective
 
 
-def build_methanol_model(cfg, co2_supply, demand_price_blocks=None, techs_methanol=["CO2Compressor", "CO2Storage", "MethanolSynthesis"], co2_label='CO2'):
+def build_methanol_model(cfg, co2_supply, techs_methanol):
     """
     Build a restricted Pyomo model for the methanol actor.
 
@@ -67,18 +67,15 @@ def build_methanol_model(cfg, co2_supply, demand_price_blocks=None, techs_methan
     co2_supply : dict
         CO2 available supply at each time step.
         Format: {t: quantity, ...}
-    demand_price_blocks : dict
-        Demand price blocks for each time step, observed from the supplier at the current iteration.
-        Format: {t: [{"block": int, "price": float, "capacity": float}, ...], ...}
     techs_methanol : list of str
-        Names of technologies to include (default: ["CO2Compressor"]).
-    co2_label : str
-        Fuel name used in the model (default: 'CO2').
+        Names of technologies to include.
+        Example: ["CO2Compressor", "CO2Storage", "MethanolSynthesis"]
 
     Returns
     -------
     model : ConcreteModel
     """
+    co2_label = cfg.co2_label
 
     # ------------------------------------------------------------------
     # 1. Load full data and restrict to methanol technologies only
@@ -95,20 +92,7 @@ def build_methanol_model(cfg, co2_supply, demand_price_blocks=None, techs_methan
 
     print("All data loaded for methanol submodel.")
 
-    # Ensure methanol technologies are in the data
-    for tech in techs_methanol:
-        if tech not in data['G']:
-            techs_methanol.remove(tech)
-            raise ValueError(f"Technology '{tech}' not found in data. Available technologies: {data['G']}")
-
-    # # Restrict technologies G
-    # data['G'] = [g for g in data['G'] if g in techs_methanol]
-
-    # # Ensure CO2 is in the fuels set
-    # if co2_label not in data['F']:
-    #     data['F'].append(co2_label)
-
-    # Ensure price_buy has entries for CO2
+    # Implement price_buy entries for CO2
     area_import = "DK1"  # Assuming import area is DK1; adjust as needed
     price_co2_external = cfg.co2_market_price
 
@@ -134,7 +118,7 @@ def build_methanol_model(cfg, co2_supply, demand_price_blocks=None, techs_methan
     define_sets(m, data)
     define_params(m, data, tech_df)
     define_variables(m)
-    add_constraints(m)
+    add_constraints(m, cfg)
 
     # ------------------------------------------------------------------
     # 3. Define CO2 supply (availability constraint): from internal biogas generation or from external market

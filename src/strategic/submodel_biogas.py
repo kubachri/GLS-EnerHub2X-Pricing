@@ -60,7 +60,7 @@ from src.model.variables import define_variables
 from src.model.constraints import add_constraints
 
 
-def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "BiogasUpgrade", "Boiler"], co2_label='CO2'):
+def build_biogas_model(cfg, demand_price_blocks, techs_biogas):
     """
     Build a restricted Pyomo model for the biogas actor.
 
@@ -81,13 +81,13 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
             }
     techs_biogas : list of str
         Names of technologies to include.
-    co2_label : str
-        Fuel name used in the model.
+        Example: ["Digester", "BiogasUpgrade", "Boiler", "CO2Liquefaction"]
 
     Returns
     -------
     model : ConcreteModel
     """
+    co2_label = cfg.co2_label
 
     # ------------------------------------------------------------------
     # 1. Load full data and restrict to biogas technologies only
@@ -104,31 +104,6 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
 
     print("All data loaded for biogas submodel.")
 
-    # Ensure biogas technologies are in the data
-    for tech in techs_biogas:
-        if tech not in data['G']:
-            techs_biogas.remove(tech)
-
-    # # Ensure CO2 is in the fuels set for Sale variable definition
-    # if co2_label not in data['F']:
-    #     data['F'].append(co2_label)
-
-    # # Ensure price_sell has entries for CO2 (set to 0, since price is endogenous)
-    # area_export = "DK1"
-    # if 'price_sell' not in data:
-    #     data['price_sell'] = {}
-    # for t in data['T']:
-    #     key = (area_export, co2_label, t)
-    #     if key not in data['price_sell']:
-    #         data['price_sell'][key] = 0.1  # small positive to avoid issues
-
-    # # Restrict technologies G
-    # data['G'] = [g for g in data['G'] if g in techs_biogas]
-    # data['G_s'] = [g for g in data['G_s'] if g in techs_biogas]
-
-    # Restrict other sets if needed (Locations, Fuels)
-    # Here we keep full sets but it might be better to restrict further.
-
     # ------------------------------------------------------------------
     # 2. Assemble Pyomo model
     # ------------------------------------------------------------------
@@ -142,11 +117,7 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
     define_sets(m, data)
     define_params(m, data, tech_df)
     define_variables(m)
-    add_constraints(m)
-        
-    # # Restrict technologies G
-    # m.G = pyo.Set(initialize=[g for g in data['G'] if g in techs_biogas], within=m.G)
-    # m.G_s = pyo.Set(initialize=[g for g in data['G_s'] if g in techs_biogas], within=m.G_s)
+    add_constraints(m, cfg)
 
     # ------------------------------------------------------------------
     # 3. Inject CO2 demand price curve (time-dependent)
@@ -222,20 +193,9 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
     # ------------------------------------------------------------------
     # 6. Link block sales to variables in CO2 fuel balance
     # ------------------------------------------------------------------
-    # Simplest version: enforce Sale == block sum for each time and location
-    # (Extend later to multiple locations/time if desired)
-
-    # Print existing Sale variable keys for debugging
-    # print("Sale variable keys:", list(m.Sale.keys()))
-
-    # def bind_sale_to_blocks(m, t):
-    #     return m.Sale[area_export, co2_label, t] == m.CO2_TotalSell[t]
-    # m.CO2_BlockBinding = pyo.Constraint(m.T, rule=bind_sale_to_blocks)
-
     def bind_fuel_balance_rule(m, t):
-        return m.Generation['BiogasUpgrade', co2_label, t] == m.CO2_TotalSell[t]
+        return sum(m.Generation[g, co2_label, t] for g in techs_biogas if (g, co2_label) in m.f_out) == m.CO2_TotalSell[t]
     m.CO2_FuelBalanceBinding = pyo.Constraint(m.T, rule=bind_fuel_balance_rule)
-
 
     # ------------------------------------------------------------------
     # 7. Define biogas profit objective
@@ -306,16 +266,16 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas=["Digester", "Biog
     m.Obj = pyo.Objective(rule=biogas_profit_rule, sense=pyo.maximize)
 
 
-    # Fix unboundedness: set artificial upper bounds on positive variables
-    def fix_unboundedness(m):
-        big_number = 1e9
-        for v in m.component_data_objects(pyo.Var):
-            if v.is_integer() or v.is_binary():
-                continue
-            if v.lb is not None and v.lb >= 0:
-                v.setub(big_number)
-            elif v.ub is not None and v.ub <= 0:
-                v.setlb(-big_number)
+    # # Fix unboundedness: set artificial upper bounds on positive variables
+    # def fix_unboundedness(m):
+    #     big_number = 1e9
+    #     for v in m.component_data_objects(pyo.Var):
+    #         if v.is_integer() or v.is_binary():
+    #             continue
+    #         if v.lb is not None and v.lb >= 0:
+    #             v.setub(big_number)
+    #         elif v.ub is not None and v.ub <= 0:
+    #             v.setlb(-big_number)
     # fix_unboundedness(m)
 
     return m

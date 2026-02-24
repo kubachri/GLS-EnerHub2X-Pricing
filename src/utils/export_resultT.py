@@ -318,7 +318,7 @@ def export_results(model, cfg: ModelConfig, path: str = None, additional_results
     # 1) Hourly CO2 duals
     co2_rows = []
     for (area, energy, t) in model.Balance.index_set():
-        if energy == 'CO2_Comp' and area == 'Skive':
+        if energy == cfg.co2_label and area == 'Skive':
             if cfg.strategic:
                 con   = model.CO2_Balance[t]
             else:
@@ -335,7 +335,7 @@ def export_results(model, cfg: ModelConfig, path: str = None, additional_results
     # for t in times:
     #     row = {'Time': str(t)}
     #     for area in ['Skive']:
-    #         idx = (area, 'CO2', t)
+    #         idx = (area, cfg.co2_label, t)
     #         if idx in model.Balance.index_set():
     #             dual_val = model.dual.get(model.Balance[idx], 0.0)
     #         else:

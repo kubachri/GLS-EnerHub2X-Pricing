@@ -15,7 +15,7 @@ from pyomo.opt import TerminationCondition
 import pandas as pd
 
 
-def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0.2, co2_label='CO2'):
+def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0):
     """
     Iterative Cournot best-response algorithm for CO2 market.
     Each strategic supplier adjusts its sale quantity given competitors' fixed quantities.
@@ -31,26 +31,38 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0.2, co2_label=
 
     print("Centralized baseline solve completed.")
 
-    # Retrieve strategic actors
-    strategic_suppliers = ['BiogasUpgrade']
-    strategic_demanders = ['CO2Compressor', 'CO2Storage', 'MethanolSynthesis']
+    # Retrieve strategic fuel
+    co2_label = cfg.co2_label
 
-    # Ensure strategic actors are in the model
+    # Retrieve strategic actors
+    strategic_suppliers = ["Digester", "BiogasUpgrade", "Boiler", "CO2Liquefaction"]
+    strategic_demanders = ["CO2Compressor", "CO2Storage", "MethanolSynthesis"]
+
+    # Ensure strategic parameters are in the model
+    if co2_label not in base_model.F:
+        raise ValueError(f"Strategic fuel '{co2_label}' not found in model fuels. Available fuels: {base_model.F}")
     for tech in strategic_suppliers:
         if tech not in base_model.G:
-            strategic_suppliers.remove(tech)
+            raise ValueError(f"Technology '{tech}' not found in data. Available technologies: {base_model.G}")
     for tech in strategic_demanders:    
         if tech not in base_model.G:
-            strategic_demanders.remove(tech)
+            if "storage" in tech.lower() and "storage" in cfg.data_file.lower():
+                print(f"Note: Technology '{tech}' not found, but assumed to be voluntary (scenario specific).")
+                continue
+            raise ValueError(f"Technology '{tech}' not found in data. Available technologies: {base_model.G}")
 
-    # Initialize supply strategies using CO2 generation (supply)
-    curr = {} # supply current strategy
-    for t in base_model.T:
-        curr[t] = 0.0
-        for tech in strategic_suppliers:
-            # Use Generation for CO2-producing techs as proxy for sales
-            gen_key = (tech, co2_label, t) if (tech, co2_label) in base_model.f_out else None
-            curr[t] += value(base_model.Generation[gen_key]) if gen_key in base_model.Generation else 0.0
+    # -- Strategies initialization --
+    # Initialize supply strategies = best-response to be iterated
+    # Use Generation for CO2-producing techs as proxy for supply
+    curr = {t:
+            sum(
+                value(base_model.Generation[tech, co2_label, t])
+                for tech in strategic_suppliers 
+                if (tech, co2_label) in base_model.f_out
+                )
+            for t in base_model.T
+            } 
+
     total_supply = sum(curr[t] for t in curr)
 
     print(f"\nStrategic suppliers: {strategic_suppliers}")
@@ -70,7 +82,8 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0.2, co2_label=
     print(f"Strategic demanders: {strategic_demanders}")
     print(f"CO2 initial demand: {sum(co2_use.values())}, average price: {sum(co2_duals.values())/len(co2_duals):.2f}")
 
-    # Construct basis demand_price_blocks with dummy blocks (same for all t, initialized once)
+
+    # -- Construct basis demand_price_blocks with dummy blocks (same for all t, initialized once) --
 
     # Case A: Realistic - competitive external CO2 demand on the market (observed by biogass)
     # Block 1: High price, low capacity
@@ -116,7 +129,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0.2, co2_label=
         # Optimize supply-side submodel (biogas)
         # Assuming only one strategic supplier for simplicity; extend as needed
         # print("Solving biogas submodel...")
-        biogas_submodel = solve_biogas_submodel(cfg, demand_price_blocks)
+        biogas_submodel = solve_biogas_submodel(cfg, demand_price_blocks, techs_biogas=strategic_suppliers)
 
         # Extract and update the supplier's best response
         co2_sell = {}
@@ -144,7 +157,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0.2, co2_label=
     
         # Optimize demand-side submodel (methanol) for next iteration: available CO2 supply is fixed (after damping)
         # print(f"Solving methanol submodel... (available supply from biogas = {sum(curr.values())})")
-        methanol_submodel, co2_duals, co2_use = solve_methanol_submodel(cfg, curr)
+        methanol_submodel, co2_duals, co2_use = solve_methanol_submodel(cfg, co2_supply=curr, techs_methanol=strategic_demanders)
 
         # Update demand_price_blocks for next iteration based on new CO2 demand
         demand_price_blocks = {}
@@ -282,10 +295,10 @@ def silent_build_model(cfg):
 
     return model
 
-def solve_biogas_submodel(cfg, demand_price_blocks):
+def solve_biogas_submodel(cfg, demand_price_blocks, techs_biogas):
     f = io.StringIO()
     with redirect_stdout(f):
-        biogas_model = build_biogas_model(cfg, demand_price_blocks)
+        biogas_model = build_biogas_model(cfg, demand_price_blocks, techs_biogas)
         biogas_model.dual = Suffix(direction=Suffix.IMPORT)
         solver = SolverFactory('gurobi_persistent')
         solver.set_instance(biogas_model, symbolic_solver_labels=True)
@@ -318,10 +331,10 @@ def solve_biogas_submodel(cfg, demand_price_blocks):
     return biogas_model
 
 
-def solve_methanol_submodel(cfg, co2_supply, demand_price_blocks=None, co2_label='CO2', strategic_demanders=["CO2Compressor", "CO2Storage", "MethanolSynthesis"]):
+def solve_methanol_submodel(cfg, co2_supply, techs_methanol):
     f = io.StringIO()
     with redirect_stdout(f):          # temporarily hide all print() inside
-        methanol_submodel = build_methanol_model(cfg, co2_supply, demand_price_blocks)
+        methanol_submodel = build_methanol_model(cfg, co2_supply, techs_methanol)
         methanol_submodel.dual = Suffix(direction=Suffix.IMPORT)
         solver = SolverFactory('gurobi_persistent')
         solver.set_instance(methanol_submodel, symbolic_solver_labels=True)
@@ -348,7 +361,7 @@ def solve_methanol_submodel(cfg, co2_supply, demand_price_blocks=None, co2_label
         # co2_use = {t: 
         #             sum(
         #                 value(methanol_submodel.Fueluse[tech, co2_label, t]) 
-        #                 for tech in strategic_demanders
+        #                 for tech in techs_methanol
         #                 if (tech, co2_label, t) in methanol_submodel.Fueluse
         #                 )
         #             for t in methanol_submodel.T 

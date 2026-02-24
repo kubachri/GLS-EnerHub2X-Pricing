@@ -1,5 +1,5 @@
 **FUNCTION**        
-***run_cournot***(cfg, tol, max_iter, damping, co2_label):
+***run_cournot***(cfg, tol, max_iter, damping):
 
     # --- Initialization phase ---
     solve(base_model)    # centralized configuration
