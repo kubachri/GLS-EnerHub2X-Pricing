@@ -1,6 +1,6 @@
 # src/strategic/submodel_methanol.py
 '''
-Docstring for EnerHub2X.src.strategic.submodel_methanol
+Docstring for src.strategic.submodel_methanol
 
 PSEUDO CODE - build_methanol_model() Function Overview
 =====================================================

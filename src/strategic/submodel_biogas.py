@@ -1,6 +1,6 @@
 # src/strategic/submodel_biogas.py
 '''
-Docstring for EnerHub2X.src.strategic.submodel_biogas
+Docstring for src.strategic.submodel_biogas
 
 PSEUDO CODE - build_biogas_model() Function Overview
 =====================================================
