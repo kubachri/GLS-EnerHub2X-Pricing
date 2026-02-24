@@ -7,7 +7,7 @@ from src.config import ModelConfig
 import io
 from contextlib import redirect_stdout
 from src.strategic.submodel_biogas import build_biogas_model
-from src.strategic.submodel_methanol import build_methanol_model  # Assuming you implement this
+from src.strategic.submodel_methanol import build_methanol_model
 
 from pyomo.environ import Var, Binary
 from pyomo.environ import TransformationFactory

@@ -9,7 +9,6 @@ from src.model.parameters import define_params
 from src.model.variables import define_variables
 from src.model.constraints import add_constraints
 from src.model.objective import define_objective
-from src.utils.validate_strategic_model import validate_strategic_model
 
 
 def build_model(cfg: ModelConfig) -> ConcreteModel:

@@ -109,7 +109,7 @@ def balance_rule(m, a, e, t):
     # 4) Assemble the balance
     return buy_term + inflow + generation == fueluse + sale_term + outflow
 
-# # # 5) Demand constraint based on sales + slack
+# # 5) Demand constraint based on sales + slack
 # def demand_time_rule(m, a, e, t):
 #     # 1) GAMS $-guard: only if there is any demand at all for (a,e)
 #     total_area_energy = sum(m.demand[a,e,tt] for tt in m.T)
