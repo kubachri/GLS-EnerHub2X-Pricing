@@ -48,8 +48,9 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0):
         if tech not in base_model.G:
             if "storage" in tech.lower() and "storage" in cfg.data_file.lower():
                 print(f"Note: Technology '{tech}' not found, but assumed to be voluntary (scenario specific).")
-                continue
-            raise ValueError(f"Technology '{tech}' not found in data. Available technologies: {base_model.G}")
+                strategic_demanders.remove(tech)
+            else:
+                raise ValueError(f"Technology '{tech}' not found in data. Available technologies: {base_model.G}")
 
     # -- Strategies initialization --
     # Initialize supply strategies = best-response to be iterated
