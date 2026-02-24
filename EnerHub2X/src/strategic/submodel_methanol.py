@@ -99,7 +99,8 @@ def build_methanol_model(cfg, co2_supply, demand_price_blocks=None, techs_methan
     for tech in techs_methanol:
         if tech not in data['G']:
             techs_methanol.remove(tech)
-    
+            raise ValueError(f"Technology '{tech}' not found in data. Available technologies: {data['G']}")
+
     # # Restrict technologies G
     # data['G'] = [g for g in data['G'] if g in techs_methanol]
 
@@ -198,7 +199,7 @@ def build_methanol_model(cfg, co2_supply, demand_price_blocks=None, techs_methan
             for a in m.A for e in fuels_in if (a,e) in m.buyE
             for t in m.T
         )
-        # b) Sale revenue
+        # b) Sale revenue >> do not include electricity sales 
         sale_rev = sum(
             m.price_sale[a,e,t] * m.Sale[a,e,t]
             for a in m.A for e in fuels_out if (a,e) in m.saleE
@@ -217,9 +218,9 @@ def build_methanol_model(cfg, co2_supply, demand_price_blocks=None, techs_methan
             for g in techs_methanol
             for t in m.T
         )
-        # e) Slack penalties (both import‐slack and export‐slack)
+        # e) Slack penalties (typically includes the methanol demand target)
         DemandSet_restricted = [(a,e,t) for (a,e,t) in m.DemandSet if e in fuels_out]
-        DemandFuel_restricted = [(s,f) for (s,f) in m.DemandFuel if f in fuels_out]
+        DemandFuel_restricted = [(s,f) for (s,f) in m.DemandFuel if f.split(".")[-1] in fuels_out]     # demand_target[(step, area_fuel)] = float(val)
         slack_sum = (
             sum(m.SlackDemandImport[a, e, t] + m.SlackDemandExport[a, e, t] for (a, e, t) in DemandSet_restricted)
             + sum(m.SlackTarget[s, f] for (s, f) in DemandFuel_restricted)
@@ -227,9 +228,9 @@ def build_methanol_model(cfg, co2_supply, demand_price_blocks=None, techs_methan
 
         total_profit_expr = sale_rev - imp_cost - var_om - startup - cfg.penalty * slack_sum
 
-        return -total_profit_expr
+        return total_profit_expr
 
-    m.Obj = pyo.Objective(rule=methanol_objective, sense=pyo.minimize)
+    m.Obj = pyo.Objective(rule=methanol_objective, sense=pyo.maximize)
 
 
 

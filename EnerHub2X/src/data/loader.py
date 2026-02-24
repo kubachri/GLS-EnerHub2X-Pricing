@@ -10,13 +10,14 @@ from src.utils.assign_hours_to_weeks import build_full_year_week_map
 # input_file = "Data_MeOH_only.xlsx"
 
 # Different scenarios can be loaded by changing this variable
-# input_file = "Data_Baseline.xlsx"
-# input_file = "Data_BioFixed.xlsx"
+input_file = "Data_Baseline.xlsx"
 # input_file = "Data_H2.xlsx"
-# input_file = "Data_NoCO2Storage.xlsx"
 # input_file = "Data_NoStorage.xlsx"
+# input_file = "Data_BioFixed.xlsx"
+
+# input_file = "Data_NoCO2Storage.xlsx"
 # input_file = "Data_Transport.xlsx"
-input_file = "Data_Biomethane.xlsx"
+# input_file = "Data_Biomethane.xlsx"
 
 
 def load_data(cfg):

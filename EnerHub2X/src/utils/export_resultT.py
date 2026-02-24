@@ -477,7 +477,7 @@ def export_results(model, cfg: ModelConfig, path: str = None, additional_results
         })
 
     # Add TotalCost as the sum of all contributions
-    total_profit = sum(entry["Contribution"] for entry in decomp)
+    total_profit = sum(entry["Contribution"] for entry in decomp if not math.isnan(entry["Contribution"]))
     decomp.append({
         "Element": "TotalProfit",
         "Contribution": total_profit
@@ -536,10 +536,12 @@ def export_results(model, cfg: ModelConfig, path: str = None, additional_results
 
                 # 11) Additional results (e.g., strategic supplier results)
                 if additional_results is not None:
-                    additional_results.to_excel(writer, sheet_name="AdditionalResults", index=True)
+                    for i, df in enumerate(additional_results):
+                        sheet_name = f"AdditionalResults_{i+1}"
+                        df.to_excel(writer, sheet_name=sheet_name, index=True)
 
-                    # Bold the last row (total profit)
-                    ws = writer.book["AdditionalResults"]
+                    # Bold the last row of the first sheet (last iteration - convergence)
+                    ws = writer.book[f"AdditionalResults_1"]
                     last_row = ws.max_row  # includes header, index handled automatically
                     for cell in ws[last_row]:
                         cell.font = Font(bold=True)

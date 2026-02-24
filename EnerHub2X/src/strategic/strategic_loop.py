@@ -31,10 +31,6 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0.2, co2_label=
 
     print("Centralized baseline solve completed.")
 
-    # Mapping tech -> area
-    tech_to_area = {tech: area for (area, tech) in base_model.location}
-    # area = tech_to_area.get(tech)
-
     # Retrieve strategic actors
     strategic_suppliers = ['BiogasUpgrade']
     strategic_demanders = ['CO2Compressor', 'CO2Storage', 'MethanolSynthesis']
@@ -192,13 +188,21 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0.2, co2_label=
     print("\nCournot Iteration Results Summary:")
     print(results_df)
 
+    # # Objective decomposition for the final methanol submodel
+    # df_decomp_methanol = extract_objective_components(cfg, methanol_submodel)
+    # print("\nMethanol Submodel Objective Decomposition:")
+    # print(df_decomp_methanol)
+
+    # # Objective decomposition for the final biogas submodel
+    # df_decomp_biogas = extract_objective_components(cfg, biogas_submodel)
+    # print("\nBiogas Submodel Objective Decomposition:")
+    # print(df_decomp_biogas)
+
     # Build and solve final full model with fixed strategies
+    # solve_final_model(cfg, results_df)
 
-    # Fix all strategic suppliers' sales
-
-    # Compare results with centralized model
     
-    return methanol_submodel, biogas_submodel, results_df
+    return methanol_submodel, biogas_submodel, [results_df]
 
 
 # ============================================================
@@ -362,3 +366,113 @@ def compare_submodels(methanol_submodel, biogas_submodel):
     # Implement comparison logic as needed, e.g., comparing key variables, objectives, etc.
     
     pass
+
+
+def safe_value(v, default=math.nan):
+    try:
+        return value(v)
+    except ValueError:
+        return default
+
+
+# Not fully implemented bc sets are not restricted
+from collections import defaultdict
+def extract_objective_components(cfg, model):
+    decomp = []
+
+    #  a) Fuel imports (“Buy_…”) are costs → negative contributions
+    for (a, e) in model.buyE:
+        tot = sum(
+            safe_value(model.price_buy[a, e, t] * model.Buy[a, e, t])
+            for t in model.T
+        )
+        decomp.append({
+            "Element": f"Buy_{e}",
+            "Contribution": - tot
+        })
+
+    #  b) Fuel sales (“Sell_…”) are revenues → positive
+    for (a, e) in model.saleE:
+        tot = sum(
+            safe_value(model.price_sale[a, e, t] * model.Sale[a, e, t])
+            for t in model.T
+        )
+        decomp.append({
+            "Element": f"Sell_{e}",
+            "Contribution": tot
+        })
+
+    #  c) Variable O&M on tech→energy
+    tot_varom = sum(
+        safe_value(model.Generation[g, e, t] * model.cvar[g])
+        for (g, e) in model.TechToEnergy
+        for t in model.T
+    )
+    decomp.append({"Element": "Variable_OM", "Contribution": - tot_varom})
+
+    #  d) Startup costs
+    tot_start = sum(
+        safe_value(model.Startcost[g, t])
+        for g in model.G
+        for t in model.T
+    )
+    decomp.append({"Element": "Startup", "Contribution": - tot_start})
+
+    # e) Slack penalties (skip any un‐initialized vars)
+    tot_slack_imp = 0.0
+    for (a, e, t) in model.DemandSet:
+        var = model.SlackDemandImport[a, e, t]
+        if var.value is not None:
+            tot_slack_imp += safe_value(var)
+
+    tot_slack_exp = 0.0
+    for (a, e, t) in model.DemandSet:
+        var = model.SlackDemandExport[a, e, t]
+        if var.value is not None:
+            tot_slack_exp += safe_value(var)
+
+    penalty = cfg.penalty
+
+
+    decomp.append({
+        "Element": "Slack",
+        "Contribution": tot_slack_imp + tot_slack_exp
+    })
+
+    decomp.append({
+        "Element": "Slack Cost",
+        "Contribution": - penalty * (tot_slack_imp + tot_slack_exp)
+    })
+
+    # Aggregate slack and cost for all demand-driven fuels
+    fuel_slack_totals = defaultdict(float)
+
+    for (step, af) in model.DemandFuel:
+        var = model.SlackTarget[step, af]
+        if var.value is not None:
+            fuel_slack_totals[af] += safe_value(var)
+
+    for af, slack_val in fuel_slack_totals.items():
+        decomp.append({
+            "Element": f"Slack {af}",
+            "Contribution": slack_val
+        })
+        decomp.append({
+            "Element": f"Slack {af} Cost",
+            "Contribution": - penalty * slack_val
+        })
+
+    # Add TotalCost as the sum of all contributions
+    total_profit = sum(entry["Contribution"] for entry in decomp if not math.isnan(entry["Contribution"]))
+    decomp.append({
+        "Element": "TotalProfit",
+        "Contribution": total_profit
+    })
+
+    df_decomp = pd.DataFrame(decomp)
+    return df_decomp
+
+
+def solve_final_model(cfg, results_df):
+
+    return

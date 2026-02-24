@@ -13,7 +13,7 @@ class ModelConfig:
     electricity_mandate:    float   = 1.0       # it's the ratio of electricity imported/electricity used in EH (limits grid imports)
     el_prod_to_grid:        float   = 1.0       # it's the ratio of electricity exported/electricity produced in EH (limits grid exports)
     strategic:              bool    = False     # run strategic operation model
-    co2_market_price:       float   = 100.0     # CO2 market price in strategic model
+    co2_market_price:       float   = 150.0     # CO2 market price in strategic model
 
     @property
     def data_dir(self) -> str:
