@@ -1,6 +1,6 @@
 # src/model/objective.py
 
-from pyomo.environ import Constraint, Objective, maximize, value
+from pyomo.environ import Constraint, Objective, value, minimize
 from src.config import ModelConfig
 
 def define_objective(m, cfg: ModelConfig):
@@ -37,9 +37,9 @@ def define_objective(m, cfg: ModelConfig):
         + sum(m.SlackTarget[s, f] for (s, f) in m.DemandFuel)
     )
 
-    total_profit_expr = sale_rev -imp_cost - var_om - startup - penalty * slack_sum
+    total_cost_expr = imp_cost + var_om + startup + penalty * slack_sum - sale_rev 
 
-    m.Obj = Objective(expr=total_profit_expr, sense=maximize)
+    m.Obj = Objective(expr=total_cost_expr, sense=minimize)
 
 def debug_objective(m, cfg):
     # 1) Recompute each piece
