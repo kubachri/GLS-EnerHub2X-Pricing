@@ -311,7 +311,7 @@ def export_results(model, cfg: ModelConfig, path: str = None):
     # 1) Hourly CO2 duals
     co2_rows = []
     for (area, energy, t) in model.Balance.index_set():
-        if energy == 'CO2_Comp' and area == 'Skive':
+        if energy == 'CO2' and area == 'Skive':
             con       = model.Balance[area, energy, t]
             dual_val  = model.dual.get(con, 0.0)
             co2_rows.append({
