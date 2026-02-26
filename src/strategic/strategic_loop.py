@@ -70,10 +70,11 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0):
     print(f"Initial strategy (total CO2 supply): {total_supply}\n")
 
     # Extract CO2 use (demand) and duals (willingness to pay) for curve construction
+    strategic_demanders_without_storage = [tech for tech in strategic_demanders if "storage" not in tech.lower()]   # Avoid double-counting demand (the fuel can either be directly used or stored and then used - in the latter case, fuel use would be double-counted as demand)
     co2_use = {t: 
                 sum(
                     value(base_model.Fueluse[tech, co2_label, t]) 
-                    for tech in strategic_demanders
+                    for tech in strategic_demanders_without_storage
                     if (tech, co2_label, t) in base_model.Fueluse
                     )
                 for t in base_model.T 
