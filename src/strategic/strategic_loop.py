@@ -203,15 +203,15 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0):
     print("\nCournot Iteration Results Summary:")
     print(results_df)
 
-    # # Objective decomposition for the final methanol submodel
-    # df_decomp_methanol = extract_objective_components(cfg, methanol_submodel)
-    # print("\nMethanol Submodel Objective Decomposition:")
-    # print(df_decomp_methanol)
+    # Objective decomposition for the final methanol submodel
+    df_decomp_methanol = extract_objective_components(cfg, methanol_submodel, techs=strategic_demanders)
+    print("\nMethanol Submodel Objective Decomposition:")
+    print(df_decomp_methanol)
 
-    # # Objective decomposition for the final biogas submodel
-    # df_decomp_biogas = extract_objective_components(cfg, biogas_submodel)
-    # print("\nBiogas Submodel Objective Decomposition:")
-    # print(df_decomp_biogas)
+    # Objective decomposition for the final biogas submodel
+    df_decomp_biogas = extract_objective_components(cfg, biogas_submodel, techs=strategic_suppliers)
+    print("\nBiogas Submodel Objective Decomposition:")
+    print(df_decomp_biogas)
 
     # Build and solve final full model with fixed strategies
     # solve_final_model(cfg, results_df)
@@ -266,6 +266,7 @@ def inspect_model(model, solver, result):
 
     return mip_obj
 
+
 def silent_build_model(cfg):
     f = io.StringIO()
     with redirect_stdout(f):          # temporarily hide all print() inside
@@ -296,6 +297,7 @@ def silent_build_model(cfg):
         print("LP solve finished.\n")
 
     return model
+
 
 def solve_biogas_submodel(cfg, demand_price_blocks, techs_biogas):
     f = io.StringIO()
@@ -377,11 +379,6 @@ def solve_methanol_submodel(cfg, co2_supply, techs_methanol):
     return methanol_submodel, co2_duals, co2_use
 
 
-def compare_submodels(methanol_submodel, biogas_submodel):
-    # Implement comparison logic as needed, e.g., comparing key variables, objectives, etc.
-    
-    pass
-
 
 def safe_value(v, default=math.nan):
     try:
@@ -390,94 +387,110 @@ def safe_value(v, default=math.nan):
         return default
 
 
-# Not fully implemented bc sets are not restricted
 from collections import defaultdict
-def extract_objective_components(cfg, model):
+def extract_objective_components(cfg, model, techs):
     decomp = []
 
-    #  a) Fuel imports (“Buy_…”) are costs → negative contributions
+    # Adapt to submodel objective structure (restricted to relevant sets since all techs are not optimized)
+    fuels_in = set(f for (g,f) in model.f_in if g in techs)
+    fuels_out = set(f for (g,f) in model.f_out if g in techs)
+    DemandSet_restricted = [(a,e,t) for (a,e,t) in model.DemandSet if e in fuels_out]
+    DemandFuel_restricted = [(s,f) for (s,f) in model.DemandFuel if f.split(".")[-1] in fuels_out]
+
+    # Print check
+    print("Restricted fuel sets (in; out):", fuels_in, fuels_out)
+    print("Restricted DemandSet set:", DemandSet_restricted[:5])
+    print("Restricted DemandFuel set:", DemandFuel_restricted[:5])
+
+    # a) Fuel imports (“Buy_…”) are costs → negative contributions
     for (a, e) in model.buyE:
-        tot = sum(
-            safe_value(model.price_buy[a, e, t] * model.Buy[a, e, t])
-            for t in model.T
-        )
-        decomp.append({
-            "Element": f"Buy_{e}",
-            "Contribution": - tot
-        })
+        if e in fuels_in:
+            tot = sum(
+                safe_value(model.price_buy[a, e, t] * model.Buy[a, e, t])
+                for t in model.T
+            )
+            decomp.append({
+                "Element": f"Buy_{e}",
+                "Contribution": - tot
+            })
 
-    #  b) Fuel sales (“Sell_…”) are revenues → positive
+    # b) Fuel sales (“Sell_…”) are revenues → positive
     for (a, e) in model.saleE:
-        tot = sum(
-            safe_value(model.price_sale[a, e, t] * model.Sale[a, e, t])
+        if e in fuels_out:
+            tot = sum(
+                safe_value(model.price_sale[a, e, t] * model.Sale[a, e, t])
+                for t in model.T
+            )
+            decomp.append({
+                "Element": f"Sell_{e}",
+                "Contribution": tot
+            })
+
+    # In the case of the supplier submodel, the strategic fuel sales need to be accounted
+    if hasattr(model, "BLOCKS"):
+        co2_sale_rev = sum(
+            safe_value(model.Demand_BlockPrice[t, b] * (model.CO2_SellBlock[t, b] + model.CO2_ActiveBlock[t, b] * model.Demand_BlockCumCap[t, b]))
             for t in model.T
-        )
+            for b in model.BLOCKS
+            )
         decomp.append({
-            "Element": f"Sell_{e}",
-            "Contribution": tot
+            "Element": f"Sell_{cfg.co2_label}",
+            "Contribution": co2_sale_rev
         })
 
-    #  c) Variable O&M on tech→energy
-    tot_varom = sum(
-        safe_value(model.Generation[g, e, t] * model.cvar[g])
-        for (g, e) in model.TechToEnergy
-        for t in model.T
-    )
-    decomp.append({"Element": "Variable_OM", "Contribution": - tot_varom})
+    # c) Variable O&M per technology
+    varom_by_tech = defaultdict(float)
+    for (g, e) in model.TechToEnergy:
+        if g in techs:
+            varom_by_tech[g] = sum(
+                safe_value(model.Generation[g, e, t]) * model.cvar[g]
+                for t in model.T
+            )
 
-    #  d) Startup costs
+    for g, val in varom_by_tech.items():
+        decomp.append({
+            "Element": f"Variable_OM_{g}",
+            "Contribution": -val
+        })
+
+    # d) Startup costs
     tot_start = sum(
         safe_value(model.Startcost[g, t])
-        for g in model.G
+        for g in techs
         for t in model.T
     )
     decomp.append({"Element": "Startup", "Contribution": - tot_start})
 
-    # e) Slack penalties (skip any un‐initialized vars)
-    tot_slack_imp = 0.0
-    for (a, e, t) in model.DemandSet:
-        var = model.SlackDemandImport[a, e, t]
-        if var.value is not None:
-            tot_slack_imp += safe_value(var)
-
-    tot_slack_exp = 0.0
-    for (a, e, t) in model.DemandSet:
-        var = model.SlackDemandExport[a, e, t]
-        if var.value is not None:
-            tot_slack_exp += safe_value(var)
-
-    penalty = cfg.penalty
-
-
-    decomp.append({
-        "Element": "Slack",
-        "Contribution": tot_slack_imp + tot_slack_exp
-    })
-
-    decomp.append({
-        "Element": "Slack Cost",
-        "Contribution": - penalty * (tot_slack_imp + tot_slack_exp)
-    })
-
-    # Aggregate slack and cost for all demand-driven fuels
+    # e) Slack penalties
     fuel_slack_totals = defaultdict(float)
 
-    for (step, af) in model.DemandFuel:
+    for (a, e, t) in DemandSet_restricted:
+        var_import = model.SlackDemandImport[a, e, t]
+        if var_import.value is not None:
+            fuel_slack_totals[f"Import_{e}"] += safe_value(var_import)
+        
+        var_export = model.SlackDemandExport[a, e, t]
+        if var_export.value is not None:
+            fuel_slack_totals[f"Export_{e}"] += safe_value(var_export)
+
+    for (step, af) in DemandFuel_restricted:
         var = model.SlackTarget[step, af]
         if var.value is not None:
             fuel_slack_totals[af] += safe_value(var)
 
-    for af, slack_val in fuel_slack_totals.items():
+    penalty = cfg.penalty
+
+    for slack_type, slack_val in fuel_slack_totals.items():
         decomp.append({
-            "Element": f"Slack {af}",
+            "Element": f"Slack {slack_type}",
             "Contribution": slack_val
         })
         decomp.append({
-            "Element": f"Slack {af} Cost",
+            "Element": f"Slack {slack_type} Cost",
             "Contribution": - penalty * slack_val
         })
 
-    # Add TotalCost as the sum of all contributions
+    # f) Add TotalCost as the sum of all contributions
     total_profit = sum(entry["Contribution"] for entry in decomp if not math.isnan(entry["Contribution"]))
     decomp.append({
         "Element": "TotalProfit",
@@ -487,7 +500,3 @@ def extract_objective_components(cfg, model):
     df_decomp = pd.DataFrame(decomp)
     return df_decomp
 
-
-def solve_final_model(cfg, results_df):
-
-    return

@@ -40,6 +40,4 @@ Notes.txt
 *.xlsx
 
 # Allow only tracked scenario input files
-!scenarios/
-!scenarios/Data_Baseline.xlsx
-!scenarios/Data_Sens_H2.xlsx
+/scenarios
