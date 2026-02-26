@@ -17,6 +17,7 @@ from src.utils.export_inputs import export_inputs
 from dataclasses import asdict
 from pathlib import Path
 from src.utils.check_co2_wedge import check_co2_wedge, CO2WedgeConfig
+from src.utils.trace_co2liq_price import trace_co2liq_price
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -156,8 +157,15 @@ def run_model(cfg, scenario_name=None):
             area_co2="Skive",
             area_el="DK1",              # change to "Skive" if you truly price electricity at Skive
             tech_compressor="CO2Compressor",
-            out_csv="results/CO2_wedge_check.csv",
+            out_csv=f"results/CO2_wedge_check_{scenario_name}.csv",
         )
+    )
+
+    trace_co2liq_price(
+        model,
+        area="Skive",
+        area_el="DK1",
+        out_csv=f"results/trace_co2liq_price_{scenario_name}.csv",
     )
 
     # print("Hourly CO₂-balance breakdown for Skive and DK1:")
