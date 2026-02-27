@@ -54,20 +54,21 @@ def run_model(cfg, scenario_name=None):
     # ------------------------------
     if cfg.strategic:
         from src.strategic.strategic_loop import run_cournot
-        final_methanol_submodel, final_biogas_submodel, results_summary = run_cournot(cfg)
+        final_strategic_model, dual_values, results_summary = run_cournot(cfg)
         print("Final strategic model run completed...")
         
         print("Exporting final results ...")
-        export_inputs(final_methanol_submodel, cfg, 
+        export_inputs(final_strategic_model, cfg, 
                       path=f"results/Inputs_{scenario_name}.xlsx"  if scenario_name else None)
-        export_results(final_methanol_submodel, cfg, 
-                       path=f"results/Results_{scenario_name}.xlsx" if scenario_name else None, 
+        export_results(final_strategic_model, cfg, 
+                       path=f"results/Results_{scenario_name}.xlsx" if scenario_name else None,
+                       dual_values=dual_values, 
                        additional_results=results_summary)
 
         elapsed = time.time() - start_time
         print(f"Total elapsed time: {elapsed:.2f} seconds")
 
-        return final_methanol_submodel
+        return final_strategic_model
 
     # ------------------------------
     # Standard run

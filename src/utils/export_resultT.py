@@ -12,7 +12,7 @@ import re
 import logging
 logging.getLogger('pyomo').setLevel(logging.CRITICAL)
 
-def export_results(model, cfg: ModelConfig, path: str = None, additional_results: pd.DataFrame = None):
+def export_results(model, cfg: ModelConfig, path: str = None, dual_values: dict = None, additional_results: pd.DataFrame = None):
     """
     Export GAMS‐style ResultT, ResultF and ResultA tables to Excel,
     plus “ResultTsum”, “ResultFsum” and “ResultAsum” pivoted summaries.
@@ -224,7 +224,7 @@ def export_results(model, cfg: ModelConfig, path: str = None, additional_results
         for a, e in sel:
             row = {'Result': res, 'area': a, 'energy': e}
             for t in times:
-                row[str(t)] = price_param[a, e, t]
+                row[str(t)] = safe_value(price_param[a, e, t])
             A_rows.append(row)
 
     # 6) Buy_EUR & 7) Sale_EUR
@@ -240,7 +240,7 @@ def export_results(model, cfg: ModelConfig, path: str = None, additional_results
                     if res == 'Buy_EUR'
                     else safe_value(model.Sale[a, e, t])
                 )
-                price = price_param[a, e, t]
+                price = safe_value(price_param[a, e, t])
                 row[str(t)] = qty * price
             A_rows.append(row)
 
@@ -317,13 +317,14 @@ def export_results(model, cfg: ModelConfig, path: str = None, additional_results
     # --- Duals sheet: 1) hourly CO2, 2) weekly methanol duals ---
     # 1) Hourly CO2 duals
     co2_rows = []
+    co2_label = cfg.co2_label
     for (area, energy, t) in model.Balance.index_set():
-        if energy == cfg.co2_label and area == 'Skive':
+        if energy == co2_label and area == 'Skive':
             if cfg.strategic:
-                con   = model.CO2_Balance[t]
+                dual_val = dual_values[co2_label][t] if co2_label in dual_values and t in dual_values[co2_label] else float("nan")
             else:
                 con   = model.Balance[area, energy, t]
-            dual_val  = model.dual.get(con, 0.0)
+                dual_val  = model.dual.get(con, 0.0)
             co2_rows.append({
                 'Area':   area,
                 'Energy': energy,
@@ -354,8 +355,11 @@ def export_results(model, cfg: ModelConfig, path: str = None, additional_results
 
         dual_rows = []
         for (step, af) in sorted(model.DemandFuel, key=sort_key):
-            constraint = model.TargetDemand[step, af]
-            dual_val = model.dual.get(constraint, float("nan"))  # NaN if no dual
+            if cfg.strategic:
+                dual_val = dual_values[af][step] if af in dual_values and step in dual_values[af] else float("nan")
+            else:
+                constraint = model.TargetDemand[step, af]
+                dual_val = model.dual.get(constraint, float("nan"))  # NaN if no dual
             dual_rows.append({
                 "Step": step,
                 "Area.Fuel": af,
@@ -562,11 +566,11 @@ def export_results(model, cfg: ModelConfig, path: str = None, additional_results
                         sheet_name = f"AdditionalResults_{i+1}"
                         df.to_excel(writer, sheet_name=sheet_name, index=True)
 
-                    # Bold the last row of the first sheet (last iteration - convergence)
-                    ws = writer.book[f"AdditionalResults_1"]
-                    last_row = ws.max_row  # includes header, index handled automatically
-                    for cell in ws[last_row]:
-                        cell.font = Font(bold=True)
+                    # # Bold the last row of the first sheet (last iteration - convergence)
+                    # ws = writer.book[f"AdditionalResults_1"]
+                    # last_row = ws.max_row  # includes header, index handled automatically
+                    # for cell in ws[last_row]:
+                    #     cell.font = Font(bold=True)
 
             break
 

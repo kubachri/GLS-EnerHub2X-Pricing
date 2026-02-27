@@ -333,50 +333,6 @@ def load_data(cfg):
 
 
     # -----------------------
-    # Strategic Actors & Inverse Demand
-    # -----------------------
-
-    if cfg.strategic:
-        # print(f"\n[INFO] Loading Strategic Actors and Inverse Demand from Excel.")
-
-        # Read StrategicActors sheet (optional)
-        if 'StrategicActors' in xls.sheet_names:
-            strat_df = xls.parse('StrategicActors').dropna(how='all')
-            # Expect columns: ActorName, Type (Supplier|Demander), Tech
-            strategic_suppliers = strat_df[strat_df['Type']=='Supplier']['Tech'].astype(str).tolist()
-            strategic_demanders  = strat_df[strat_df['Type']=='Demander']['Tech'].astype(str).tolist()
-        else:
-            print("[WARNING] No strategic actors sheet found. Running in centralized mode.")
-            strategic_suppliers = []
-            strategic_demanders  = []
-
-        # Read linear inverse demand for CO2 (optional)
-        # If sheet present, allow per-hour values; else fallback to simple constants
-        if 'InverseDemand_CO2' in xls.sheet_names:
-            inv_df = xls.parse('InverseDemand_CO2').dropna(how='all')
-            # If column 'Hour' present, build time-series dict
-            if 'Hour' in inv_df.columns:
-                a_co2 = {(hr): float(row['a']) for _, row in inv_df.iterrows() for hr in [row['Hour']]}
-                b_co2 = {(hr): float(row['b']) for _, row in inv_df.iterrows() for hr in [row['Hour']]}
-            else:
-                # single constants for whole horizon
-                a_co2_const = float(inv_df['a'].iloc[0])
-                b_co2_const = float(inv_df['b'].iloc[0])
-                a_co2 = {hr: a_co2_const for hr in T}
-                b_co2 = {hr: b_co2_const for hr in T}
-        else:
-            # default (very high a, near-zero b → keeps original prices if not configured)
-            print("[WARNING] Sheet 'InverseDemand_CO2' not found. Using default parameters (a=1e6, b=1e-6).")
-            a_co2 = {hr: 1e6 for hr in T}
-            b_co2 = {hr: 1e-6 for hr in T}
-
-    else:
-        strategic_suppliers = []
-        strategic_demanders  = []
-        a_co2 = {hr: 1e6 for hr in T}
-        b_co2 = {hr: 1e-6 for hr in T}
-
-    # -----------------------
     # Assemble and return
     # -----------------------
     data = {
@@ -401,70 +357,7 @@ def load_data(cfg):
     data['WeekMap'] = build_full_year_week_map(T)
     data['WeekOfT'] = {t: data['WeekMap'][t] for t in data['T']}
 
-    # Attach strategic parameters
-    data['StrategicSuppliers'] = strategic_suppliers
-    data['StrategicDemanders'] = strategic_demanders
-    data['a_co2'] = a_co2
-    data['b_co2'] = b_co2
-
     if cfg.sensitivity:
         tech_df, data = apply_sensitivity_overrides(tech_df, data)
 
-    # print(f"\n[DEBUG] Strategic flag is set: {cfg.strategic}. Checking strategic actors and inverse demand parameters...")
-    # verify_strategic_inputs(data)
-
-    # print(f"[INFO] Loaded {len(data['StrategicSuppliers'])} strategic supplier: {data['StrategicSuppliers']} and {len(data['StrategicDemanders'])} strategic demander: {data['StrategicDemanders']}.")
-    # print(f"[INFO] Sample a_co2[0]: {data['a_co2'][T[0]]}, b_co2[0]: {data['b_co2'][T[0]]}")
-
     return data, tech_df
-
-
-
-def verify_strategic_inputs(data):
-
-    # --- Check 1: Strategic actor lists ---
-    for list_name in ['StrategicSuppliers', 'StrategicDemanders']:
-        if list_name not in data:
-            print(f"[WARNING] {list_name} missing from data.")
-            continue
-
-        actor_list = data[list_name]
-        if not isinstance(actor_list, list):
-            print(f"[ERROR] {list_name} should be a list, got {type(actor_list)}.")
-        elif not actor_list:
-            print(f"[INFO] {list_name} is empty (no strategic actors).")
-
-        # Cross-check with technology set if available
-        if 'G' in data:
-            invalid = [a for a in actor_list if a not in data['G']]
-            if invalid:
-                print(f"[WARNING] {list_name} contains unknown techs: {invalid}")
-        else:
-            print(f"[INFO] Cannot cross-check {list_name} (data['G'] not loaded yet).")
-
-    # --- Check 2: Inverse demand parameters ---
-    for p in ['a_co2', 'b_co2']:
-        if p not in data:
-            print(f"[ERROR] Missing parameter '{p}' in data.")
-            continue
-
-        param = data[p]
-        if not isinstance(param, dict):
-            print(f"[ERROR] {p} should be dict-like, got {type(param)}")
-            continue
-
-        # Consistency of keys
-        if 'T' in data:
-            missing = [t for t in data['T'] if t not in param]
-            if missing:
-                print(f"[WARNING] {p} missing time indices: {missing[:5]} ...")
-        else:
-            print("[INFO] No time set T found to check against.")
-
-        # Check numeric content
-        nonnum = [t for t,v in param.items() if not isinstance(v,(int,float))]
-        if nonnum:
-            print(f"[WARNING] Non-numeric entries in {p}: {nonnum[:5]}")
-
-    print("[DEBUG] Strategic parameter verification completed. If no intermediate warning, implementation is considered successful.\n")
-    return

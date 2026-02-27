@@ -1,18 +1,16 @@
 # src/strategic/strategic_loop.py
 
 import math
-from pyomo.environ import value, SolverFactory, Suffix, Objective, maximize, Var
+import re
+import pandas as pd
+from pyomo.environ import value, SolverFactory, TransformationFactory, Suffix, Objective, maximize, Var, NonNegativeReals, Binary
+from pyomo.opt import TerminationCondition
 from src.model.builder import build_model
 from src.config import ModelConfig
 import io
 from contextlib import redirect_stdout
 from src.strategic.submodel_biogas import build_biogas_model
 from src.strategic.submodel_methanol import build_methanol_model
-
-from pyomo.environ import Var, Binary
-from pyomo.environ import TransformationFactory
-from pyomo.opt import TerminationCondition
-import pandas as pd
 
 
 def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0):
@@ -121,6 +119,9 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0):
     results_df.set_index('Iteration', inplace=True)
     results_df.loc[0] = [None, total_supply, None, None, None, sum(co2_use.values()), sum(co2_duals.values())/len(co2_duals), None, None]
 
+    duals_df = {}
+    duals_df[0] = {t: co2_duals[t] for t in base_model.T}   
+
     # ------------------------------------------------------------ 
     # 2. BEST-RESPONSE ITERATION LOOP
     # ------------------------------------------------------------
@@ -183,6 +184,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0):
                                     value(methanol_submodel.Obj)               # Methanol objective
                                     ]
         
+        duals_df[iteration] = {t: co2_duals[t] for t in methanol_submodel.T}
 
         # Check convergence
         print(f"[ITER {iteration}] Max change = {max_change:.6f}")
@@ -203,21 +205,40 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0):
     print("\nCournot Iteration Results Summary:")
     print(results_df)
 
+    duals_summary = []
+    for t in methanol_submodel.T:
+        row = {'Time': t}
+        for iter in duals_df.keys():
+            row[f'Dual_{iter}'] = duals_df[iter][t]
+        duals_summary.append(row)
+    duals_summary_df = pd.DataFrame(duals_summary)
+
+    # Extract relevant duals
+    duals = {f'{co2_label}': co2_duals}
+
+    if hasattr(methanol_submodel, 'TargetDemand') and hasattr(methanol_submodel, 'DemandFuel'):
+        for (step, af) in methanol_submodel.DemandFuel:
+            constraint = methanol_submodel.TargetDemand[step, af]
+            dual_val = methanol_submodel.dual.get(constraint, float("nan"))
+            if duals.get(af) is None:
+                duals[f'{af}'] = {}
+            duals[f'{af}'][step] = dual_val
+
     # Objective decomposition for the final methanol submodel
-    df_decomp_methanol = extract_objective_components(cfg, methanol_submodel, techs=strategic_demanders)
     print("\nMethanol Submodel Objective Decomposition:")
-    print(df_decomp_methanol)
+    df_decomp_methanol = extract_objective_components(cfg, methanol_submodel, techs=strategic_demanders)
+    print("\n", df_decomp_methanol)
 
     # Objective decomposition for the final biogas submodel
-    df_decomp_biogas = extract_objective_components(cfg, biogas_submodel, techs=strategic_suppliers)
     print("\nBiogas Submodel Objective Decomposition:")
-    print(df_decomp_biogas)
+    df_decomp_biogas = extract_objective_components(cfg, biogas_submodel, techs=strategic_suppliers)
+    print("\n", df_decomp_biogas)
 
     # Build and solve final full model with fixed strategies
-    # solve_final_model(cfg, results_df)
+    # final_model = solve_final_model(cfg, methanol_submodel, biogas_submodel, techs_methanol=strategic_demanders, techs_biogas=strategic_suppliers)
 
-    
-    return methanol_submodel, biogas_submodel, [results_df]
+    return methanol_submodel, duals, [df_decomp_methanol, df_decomp_biogas, results_df, duals_summary_df]
+    # return methanol_submodel, biogas_submodel, [results_df]
 
 
 # ============================================================
@@ -370,14 +391,86 @@ def solve_methanol_submodel(cfg, co2_supply, techs_methanol):
         #                 )
         #             for t in methanol_submodel.T 
         #         }
-        co2_use = {t: value(methanol_submodel.CO2_InternalUse[t]) for t in methanol_submodel.T}
+        co2_use_internal = {t: value(methanol_submodel.CO2_InternalUse[t]) for t in methanol_submodel.T}
         co2_duals = {t: abs(methanol_submodel.dual.get(methanol_submodel.CO2_Balance[t], 0.0)) for t in methanol_submodel.T}
 
         # Print summary
-        print(f"→ Total CO2 demand and average price: {sum(co2_use.values())}, {sum(co2_duals.values())/len(co2_duals):.2f}")
+        print(f"→ Total CO2 demand and average price: {sum(co2_use_internal.values())}, {sum(co2_duals.values())/len(co2_duals):.2f}")
 
-    return methanol_submodel, co2_duals, co2_use
+    return methanol_submodel, co2_duals, co2_use_internal
 
+
+def solve_final_model(cfg, methanol_submodel, biogas_submodel, techs_methanol, techs_biogas):
+    """
+    Solves the final full model with strategic variables fixed to their submodel solutions.
+    
+    Args:
+        cfg: ModelConfig object
+        methanol_submodel: Solved methanol submodel (provides fixed values for demanders)
+        biogas_submodel: Solved biogas submodel (provides fixed values for suppliers)
+        techs_methanol: List of strategic demander technologies
+        techs_biogas: List of strategic supplier technologies
+    
+    Returns:
+        final_model: The solved full model with fixed strategic variables
+    """
+    print("\n================= Building Final Full Model =================\n")
+    
+    # f = io.StringIO()
+    # with redirect_stdout(f):
+
+    # Build the full model
+    final_model = build_model(cfg, final_strategic=True)
+    final_model.dual = Suffix(direction=Suffix.IMPORT)
+    
+    # Fix generation variables for strategic suppliers to biogas submodel values
+    print("Fixing strategic supplier variables...")
+    for tech in techs_biogas:
+        for f in final_model.F:
+            if (tech, f) in final_model.f_out:
+                for t in final_model.T:
+                    if (tech, f, t) in biogas_submodel.Generation:
+                        biogas_val = value(biogas_submodel.Generation[tech, f, t])
+                        if (tech, f, t) in final_model.Generation:
+                            final_model.Generation[tech, f, t].fix(biogas_val)
+    
+    # Fix fuel use variables for strategic demanders to methanol submodel values
+    print("Fixing strategic demander variables...\n")
+    for tech in techs_methanol:
+        for f in final_model.F:
+            if (tech, f) in final_model.f_out:
+                for t in final_model.T:
+                    if (tech, f, t) in methanol_submodel.Generation:
+                        methanol_val = value(methanol_submodel.Generation[tech, f, t])
+                        if (tech, f, t) in final_model.Generation:
+                            final_model.Generation[tech, f, t].fix(methanol_val)
+    
+    # # Fix CO2 imports (from demander submodel) and exports (from supplier submodel) to ensure consistency
+    # # Define prices
+    # market_area = "DK1"
+    # for t in final_model.T:
+    #     final_model.price_buy[market_area, co2_label, t]= cfg.co2_market_price
+    #     final_model.price_sale[market_area, co2_label, t]= 40.0  # corresponds to the price of the dummy block (additional demand from the external market)
+    #     final_model.price_sale[market_area, co2_label, t]= value(biogas_submodel.CO2_MarketPrice[t])
+    
+    # # Fix variables
+    # final_model.CO2_Buy  = Var(final_model.T, domain=NonNegativeReals)
+    # final_model.CO2_Sale = Var(final_model.T, domain=NonNegativeReals)
+    # for t in final_model.T:
+    #     final_model.CO2_Buy[t].fix(value(methanol_submodel.Buy[market_area, co2_label, t]))
+    #     final_model.CO2_Sale[t].fix(value(biogas_submodel.CO2_TotalSell[t]))
+    
+    # Solve the fixed model
+    solver = SolverFactory('gurobi_persistent')
+    solver.set_instance(final_model, symbolic_solver_labels=True)
+    solver.options['MIPGap'] = 0.05
+    mip_result = solver.solve(final_model, tee=True)
+    
+    inspect_model(final_model, solver, mip_result)
+    
+    return final_model
+
+    
 
 
 def safe_value(v, default=math.nan):
@@ -399,8 +492,8 @@ def extract_objective_components(cfg, model, techs):
 
     # Print check
     print("Restricted fuel sets (in; out):", fuels_in, fuels_out)
-    print("Restricted DemandSet set:", DemandSet_restricted[:5])
-    print("Restricted DemandFuel set:", DemandFuel_restricted[:5])
+    print("Restricted DemandSet set:", DemandSet_restricted[:5], "... and values:", [model.demand[a,e,t] for (a,e,t) in DemandSet_restricted[:5]])
+    print("Restricted DemandFuel set:", DemandFuel_restricted[:5], "... and values:", [model.DemandTarget[s,f] for (s,f) in DemandFuel_restricted[:5]])
 
     # a) Fuel imports (“Buy_…”) are costs → negative contributions
     for (a, e) in model.buyE:
@@ -441,7 +534,7 @@ def extract_objective_components(cfg, model, techs):
     # c) Variable O&M per technology
     varom_by_tech = defaultdict(float)
     for (g, e) in model.TechToEnergy:
-        if g in techs:
+        if g in techs and model.cvar[g] is not None:
             varom_by_tech[g] = sum(
                 safe_value(model.Generation[g, e, t]) * model.cvar[g]
                 for t in model.T
@@ -459,18 +552,18 @@ def extract_objective_components(cfg, model, techs):
         for g in techs
         for t in model.T
     )
-    decomp.append({"Element": "Startup", "Contribution": - tot_start})
+    decomp.append({"Element": "Startup Costs", "Contribution": - tot_start})
 
     # e) Slack penalties
     fuel_slack_totals = defaultdict(float)
 
     for (a, e, t) in DemandSet_restricted:
         var_import = model.SlackDemandImport[a, e, t]
-        if var_import.value is not None:
+        if var_import.value is not None and var_import.value != 0.0:
             fuel_slack_totals[f"Import_{e}"] += safe_value(var_import)
         
         var_export = model.SlackDemandExport[a, e, t]
-        if var_export.value is not None:
+        if var_export.value is not None and var_export.value != 0.0:
             fuel_slack_totals[f"Export_{e}"] += safe_value(var_export)
 
     for (step, af) in DemandFuel_restricted:
