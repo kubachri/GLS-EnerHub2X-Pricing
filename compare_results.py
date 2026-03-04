@@ -9,8 +9,7 @@ scenario_files = {
     "NoStorageCO2":   "results/Results_NoStorageCO2.xlsx",
     "NoStorageALL":   "results/Results_NoStorageALL.xlsx",
     "H2":             "results/Results_H2.xlsx",
-    "CO2Abundance":   "results/Results_CO2Abundance.xlsx",
-    "CO2Trans":       "results/Results_Transport.xlsx"
+    "CO2Abundance":   "results/Results_CO2Abundance.xlsx"
 }
 baseline_path = scenario_files["Baseline"]
 
