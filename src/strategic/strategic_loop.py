@@ -120,7 +120,7 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0):
     results_df.loc[0] = [None, total_supply, None, None, None, sum(co2_use.values()), sum(co2_duals.values())/len(co2_duals), None, None]
 
     duals_df = {}
-    duals_df[0] = {t: co2_duals[t] for t in base_model.T}   
+    duals_df[0] = {t: (curr[t], co2_use[t], co2_duals[t]) for t in base_model.T}   
 
     # ------------------------------------------------------------ 
     # 2. BEST-RESPONSE ITERATION LOOP
@@ -184,7 +184,15 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0):
                                     value(methanol_submodel.Obj)               # Methanol objective
                                     ]
         
-        duals_df[iteration] = {t: co2_duals[t] for t in methanol_submodel.T}
+        co2_demand = {t: 
+                        sum(
+                            value(methanol_submodel.Fueluse[tech, co2_label, t]) 
+                            for tech in strategic_demanders_without_storage
+                            if (tech, co2_label, t) in methanol_submodel.Fueluse
+                            )
+                        for t in methanol_submodel.T 
+                        }
+        duals_df[iteration] = {t: (co2_duals[t], co2_demand[t], curr[t]) for t in methanol_submodel.T}
 
         # Check convergence
         print(f"[ITER {iteration}] Max change = {max_change:.6f}")
@@ -209,7 +217,10 @@ def run_cournot(cfg: ModelConfig, tol=1e-2, max_iter=50, damping=0):
     for t in methanol_submodel.T:
         row = {'Time': t}
         for iter in duals_df.keys():
-            row[f'Dual_{iter}'] = duals_df[iter][t]
+            dual_val, demand_val, supply_val = duals_df[iter][t]
+            row[f'Dual_{iter}'] = dual_val
+            row[f'Demand_{iter}'] = demand_val
+            row[f'Supply_{iter}'] = supply_val
         duals_summary.append(row)
     duals_summary_df = pd.DataFrame(duals_summary)
 
