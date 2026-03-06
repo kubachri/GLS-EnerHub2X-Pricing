@@ -60,7 +60,7 @@ from src.model.variables import define_variables
 from src.model.constraints import add_constraints
 
 
-def build_biogas_model(cfg, demand_price_blocks, techs_biogas):
+def build_biogas_model(cfg, price_co2_internal, techs_biogas):
     """
     Build a restricted Pyomo model for the biogas actor.
 
@@ -68,17 +68,8 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas):
     ----------
     cfg : ModelConfig
         Full system configuration, but will be partially overridden.
-    demand_price_blocks : dict with time t as key, value list of dicts (ordered decreasingly by price)
-        Example format:
-            {
-                1: [
-                    {"block": 1, "price": 50, "capacity": 200},
-                    {"block": 2, "price": 45, "capacity": 150},
-                    ...
-                ],
-                2: [...],
-                ...
-            }
+    price_co2_internal : dict {time -> price}
+        Time-dependent internal price of CO2 for the biogas submodel.
     techs_biogas : list of str
         Names of technologies to include.
         Example: ["Digester", "BiogasUpgrade", "Boiler", "CO2Liquefaction"]
@@ -120,85 +111,7 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas):
     add_constraints(m, cfg)
 
     # ------------------------------------------------------------------
-    # 3. Inject CO2 demand price curve (time-dependent)
-    # ------------------------------------------------------------------
-    # Create a non-indexed set of block ids non time-dependent
-    m.BLOCKS = pyo.Set(initialize=list(range(1, len(demand_price_blocks.get(data['T'][0], [])) + 1)))
-
-    # Block prices per time and block
-    def demand_block_price_init(m, t, b):
-        blocks = demand_price_blocks.get(t, [])
-        return next((blk["price"] for blk in blocks if blk["block"] == b), 0)
-    m.Demand_BlockPrice = pyo.Param(
-        m.T, m.BLOCKS,
-        initialize=demand_block_price_init,
-        within=pyo.NonNegativeReals,
-        mutable=True,
-    )
-
-    # Block capacities per time and block
-    def demand_block_cap_init(m, t, b):
-        blocks = demand_price_blocks.get(t, [])
-        return next((blk["capacity"] for blk in blocks if blk["block"] == b), 0)
-    m.Demand_BlockCap = pyo.Param(
-        m.T, m.BLOCKS,
-        initialize=demand_block_cap_init,
-        within=pyo.NonNegativeReals,
-        mutable=True,
-    )
-
-    # Cumulative capacities per time and block
-    def demand_block_cumcap_init(m, t, b):
-        blocks = demand_price_blocks.get(t, [])
-        return sum(blk["capacity"] for blk in blocks if blk["block"] < b)
-    m.Demand_BlockCumCap = pyo.Param(
-        m.T, m.BLOCKS,
-        initialize=demand_block_cumcap_init,
-        within=pyo.NonNegativeReals,
-        mutable=True,
-    )    
-
-    # ------------------------------------------------------------------
-    # 4. Define variables for CO2 block sales (time-dependent)
-    # ------------------------------------------------------------------
-
-    # Decision: in which block is the market cleared per time
-    m.CO2_ActiveBlock = pyo.Var(m.T, m.BLOCKS, within=pyo.Binary)
-
-    # Decision: how much CO2 is sold in the active block per time
-    m.CO2_SellBlock = pyo.Var(m.T, m.BLOCKS, within=pyo.NonNegativeReals)
-
-    # Total CO2 sales from blocks per time
-    def co2_total_sell_rule(m, t):
-        return sum(m.CO2_SellBlock[t, b] + m.CO2_ActiveBlock[t, b] * m.Demand_BlockCumCap[t, b] for b in m.BLOCKS)
-    m.CO2_TotalSell = pyo.Expression(m.T, rule=co2_total_sell_rule)
-
-    # CO2 market clearing price expression per time
-    def co2_market_price_rule(m, t):
-        return sum(m.Demand_BlockPrice[t, b] * m.CO2_ActiveBlock[t, b] for b in m.BLOCKS)
-    m.CO2_MarketPrice = pyo.Expression(m.T, rule=co2_market_price_rule)
-
-    # ------------------------------------------------------------------
-    # 5. Define constraints for CO2 block sales (time-dependent)
-    # ------------------------------------------------------------------
-
-    def co2_block_capacity_rule(m, t, b):
-        return m.CO2_SellBlock[t, b] <= m.Demand_BlockCap[t, b] * m.CO2_ActiveBlock[t, b]
-    m.CO2_BlockCapConstr = pyo.Constraint(m.T, m.BLOCKS, rule=co2_block_capacity_rule)
-
-    def co2_single_active_block_rule(m, t):
-        return sum(m.CO2_ActiveBlock[t, b] for b in m.BLOCKS) == 1
-    m.CO2_SingleActiveBlockConstr = pyo.Constraint(m.T, rule=co2_single_active_block_rule)
-
-    # ------------------------------------------------------------------
-    # 6. Link block sales to variables in CO2 fuel balance
-    # ------------------------------------------------------------------
-    def bind_fuel_balance_rule(m, t):
-        return sum(m.Generation[g, co2_label, t] for g in techs_biogas if (g, co2_label) in m.f_out) == m.CO2_TotalSell[t]
-    m.CO2_FuelBalanceBinding = pyo.Constraint(m.T, rule=bind_fuel_balance_rule)
-
-    # ------------------------------------------------------------------
-    # 7. Define biogas profit objective
+    # 3. Define biogas profit objective
     # ------------------------------------------------------------------
     def biogas_profit_rule(m):
 
@@ -216,11 +129,8 @@ def build_biogas_model(cfg, demand_price_blocks, techs_biogas):
             for t in m.T
         )
         # b) Sale revenue from CO2 market (modified to match block pricing, summed over time)
-        sale_rev = sum(
-            m.Demand_BlockPrice[t, b] * (m.CO2_SellBlock[t, b] + m.CO2_ActiveBlock[t, b] * m.Demand_BlockCumCap[t, b])
-            for t in m.T
-            for b in m.BLOCKS
-        )
+        sale_rev = sum(m.Generation[g, co2_label, t] * price_co2_internal[t] for g in techs_biogas if (g, co2_label) in m.f_out for t in m.T)
+
         # Add any additional sales revenue from other fuel sales: could include heat, biogas and biomethane (if they could be sold to the grid)
         sale_rev += sum(
             m.price_sale[a,e,t] * m.Sale[a,e,t]

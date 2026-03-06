@@ -56,7 +56,7 @@ from src.model.constraints import add_constraints
 from src.model.objective import define_objective
 
 
-def build_methanol_model(cfg, co2_supply, techs_methanol):
+def build_methanol_model(cfg, price_co2_internal, techs_methanol):
     """
     Build a restricted Pyomo model for the methanol actor.
 
@@ -64,9 +64,9 @@ def build_methanol_model(cfg, co2_supply, techs_methanol):
     ----------
     cfg : ModelConfig
         Full system configuration, but will be partially overridden.
-    co2_supply : dict
-        CO2 available supply at each time step.
-        Format: {t: quantity, ...}
+    price_co2_internal : dict
+        Internal CO2 price at each time step. Result from the best response iteration.
+        Format: {t: price, ...}
     techs_methanol : list of str
         Names of technologies to include.
         Example: ["CO2Compressor", "CO2Storage", "MethanolSynthesis"]
@@ -125,14 +125,17 @@ def build_methanol_model(cfg, co2_supply, techs_methanol):
     # ------------------------------------------------------------------
     # CO2 is available from biogas submodel supply: co2_supply[t] represents the supplied co2 quantity at time t to methanol plant
     # Generation can only be up to the market supplied amount ()
-    def co2_supply_limit_rule(m, t):
-        return sum(
-            m.Generation[g, co2_label, t] 
-            for g in m.G
-            if (g, co2_label) in m.f_out
-            ) <= co2_supply.get(t, 0.0)
     
-    m.CO2_SupplyLimit = pyo.Constraint(m.T, rule=co2_supply_limit_rule)
+    # For now, we do not limit the internal generation to allow methanol to request more internal co2 than the supplied amount (it is usually converging towards the supplied amount for optimality).
+    # def co2_supply_limit_rule(m, t):
+    #     return sum(
+    #         m.Generation[g, co2_label, t] 
+    #         for g in m.G
+    #         if (g, co2_label) in m.f_out
+    #         if g not in techs_methanol  # do not limit internal generation (storage)
+    #         ) <= co2_supply.get(t, 0.0)
+    
+    # m.CO2_SupplyLimit = pyo.Constraint(m.T, rule=co2_supply_limit_rule)
 
     # The generic balance_rule for CO2 has been disabled in add_constraints()
     # Define CO2 balance constraint specifically for methanol submodel
@@ -159,6 +162,7 @@ def build_methanol_model(cfg, co2_supply, techs_methanol):
         return sum(
             m.Generation[g, co2_label, t]
             for g in m.G
+            if g not in techs_methanol  # do not include internal generation from methanol technologies (storage)
             if (g, co2_label) in m.f_out
         )
     m.CO2_InternalUse = pyo.Expression(m.T, rule=co2_internal_use_rule)
@@ -182,7 +186,12 @@ def build_methanol_model(cfg, co2_supply, techs_methanol):
             # for (a,e) in m.buyE
             for a in m.A for e in fuels_in if (a,e) in m.buyE
             for t in m.T
+        ) 
+        imp_cost += sum(
+            m.CO2_InternalUse[t] * price_co2_internal[t]
+            for t in m.T
         )
+
         # b) Sale revenue >> do not include electricity sales 
         sale_rev = sum(
             m.price_sale[a,e,t] * m.Sale[a,e,t]
