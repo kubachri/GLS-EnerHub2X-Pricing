@@ -131,12 +131,13 @@ def build_biogas_model(cfg, price_co2_internal, techs_biogas):
         # b) Sale revenue from CO2 market (modified to match block pricing, summed over time)
         sale_rev = sum(m.Generation[g, co2_label, t] * price_co2_internal[t] for g in techs_biogas if (g, co2_label) in m.f_out for t in m.T)
 
+        # Limit revenue to CO2 sales only
         # Add any additional sales revenue from other fuel sales: could include heat, biogas and biomethane (if they could be sold to the grid)
-        sale_rev += sum(
-            m.price_sale[a,e,t] * m.Sale[a,e,t]
-            for a in m.A for e in fuels_out if (a,e) in m.saleE
-            for t in m.T
-        )
+        # sale_rev += sum(
+        #     m.price_sale[a,e,t] * m.Sale[a,e,t]
+        #     for a in m.A for e in fuels_out if (a,e) in m.saleE
+        #     for t in m.T
+        # )
         # c) Variable O&M on all tech→energy links (only for technologies in biogas submodel)
         var_om = sum(
             m.Generation[g,e,t] * m.cvar[g]

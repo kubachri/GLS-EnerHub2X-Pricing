@@ -34,7 +34,7 @@ def parse_args():
 
     return p.parse_args()
 
-def run_model(cfg, scenario_name=None):
+def run_model(cfg, max_iter=30, scenario_name=None):
     start_time = time.time()
     print("==========================")
     print("Model Run Started")
@@ -54,7 +54,7 @@ def run_model(cfg, scenario_name=None):
     # ------------------------------
     if cfg.strategic:
         from src.strategic.strategic_loop import run_co2_market_equilibrium
-        final_strategic_model, dual_values, results_summary = run_co2_market_equilibrium(cfg)
+        final_strategic_model, dual_values, results_summary = run_co2_market_equilibrium(cfg, max_iter=max_iter)
         print("Final strategic model run completed...")
         
         print("Exporting final results ...")

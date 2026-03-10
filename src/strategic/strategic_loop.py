@@ -13,7 +13,7 @@ from src.strategic.submodel_biogas import build_biogas_model
 from src.strategic.submodel_methanol import build_methanol_model
 
 
-def run_co2_market_equilibrium(cfg: ModelConfig, tol=1e-2, max_iter=10):
+def run_co2_market_equilibrium(cfg: ModelConfig, tol=1e-2, max_iter=30):
     """
     Iterative price-adjustment algorithm approximating a decentralized
     CO₂ market equilibrium between suppliers and demanders.
@@ -31,7 +31,7 @@ def run_co2_market_equilibrium(cfg: ModelConfig, tol=1e-2, max_iter=10):
 
     # Strategic parameters for iterative algorithm
     # alpha = 0.5  # Price adjustment step size (can be tuned for convergence behavior)
-    alpha = [0.8]*10 + [0.5]*10 + [0.3]*10 + [0.1]*10  # Decreasing step size over iterations
+    alpha = [1]*10 + [0.8]*5 + [0.5]*5 + [0.3]*5 + [0.1]*15  # Decreasing step size over iterations
 
     # Retrieve strategic fuel
     co2_label = cfg.co2_label
@@ -71,7 +71,8 @@ def run_co2_market_equilibrium(cfg: ModelConfig, tol=1e-2, max_iter=10):
 
     # Extract CO2 use (demand) and duals (willingness to pay) for curve construction
     co2_demand = co2_supply.copy()
-    co2_wtp = {t: abs(base_model.dual.get(base_model.Balance['Skive', co2_label, t], 0.0)) for t in base_model.T} 
+    # co2_wtp = {t: abs(base_model.dual.get(base_model.Balance['Skive', co2_label, t], 0.0)) for t in base_model.T} 
+    co2_wtp = {t: 150.0 for t in base_model.T}  # Start with high price to ensure initial demand is met
 
     print(f"Strategic demanders: {strategic_demanders}")
     print(f"CO2 initial demand: {sum(co2_demand.values()):.2f}, average price: {sum(co2_wtp.values())/len(co2_wtp):.2f}")
@@ -127,18 +128,21 @@ def run_co2_market_equilibrium(cfg: ModelConfig, tol=1e-2, max_iter=10):
         # Update willingness to pay depending on the relative excess demand in the internal CO2 market (proportional tatonnement)
         for t in methanol_submodel.T:
             p_old = co2_wtp[t]
+            if p_old == 0.0:
+                p_old = 1.0  
+
             excess = co2_demand[t] - co2_supply[t]
             ratio = excess / market_scale
-            p_delta = alpha[iteration] * ratio * p_old
+            p_delta = ratio * p_old
             # p_delta = alpha * excess
             print(f"Iter {iteration}, Time {t}: excess={excess:.2f}, ratio={ratio:.2f}, p_old={p_old:.2f}, p_delta={p_delta:.2f}")
 
             p_delta = max(min(p_delta, 10.0), -10.0)  # limit price changes to avoid oscillations
-            p_new = p_old + p_delta
+            p_new = p_old + alpha[iteration] * p_delta
 
             # Price smoothing to further dampen oscillations
             # p_new = 0.7 * p_new + 0.3 * p_old
-            co2_wtp[t] = min(max(p_new, 0.0), 150.0)
+            co2_wtp[t] = min(max(p_new, 1.0), 150.0)
 
             price_change = max(price_change, abs(co2_wtp[t] - p_old))
 
