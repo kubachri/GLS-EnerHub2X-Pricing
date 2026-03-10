@@ -53,8 +53,8 @@ def run_model(cfg, scenario_name=None):
     # Strategic run
     # ------------------------------
     if cfg.strategic:
-        from src.strategic.strategic_loop import run_cournot
-        final_strategic_model, dual_values, results_summary = run_cournot(cfg)
+        from src.strategic.strategic_loop import run_co2_market_equilibrium
+        final_strategic_model, dual_values, results_summary = run_co2_market_equilibrium(cfg)
         print("Final strategic model run completed...")
         
         print("Exporting final results ...")
@@ -68,7 +68,7 @@ def run_model(cfg, scenario_name=None):
         elapsed = time.time() - start_time
         print(f"Total elapsed time: {elapsed:.2f} seconds")
 
-        return final_strategic_model
+        return final_strategic_model, dual_values, results_summary
 
     # ------------------------------
     # Standard run
