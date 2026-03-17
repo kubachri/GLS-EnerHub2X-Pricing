@@ -237,7 +237,7 @@ def main():
     defaults = ModelConfig()
 
     if args.multiple_scenarios:
-        folder = Path("scenarios")
+        folder = Path("scenarios/SensAnalysis/2022")
         files = sorted(folder.glob("*.xlsx"))
 
         for file in files:

@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 import os
 
-DEFAULT_DATA_FILE = os.path.join(os.getcwd(), "scenarios", "Data_Baseline.xlsx")
+DEFAULT_DATA_FILE = os.path.join(os.getcwd(), "scenarios", "Data_Baseline_9.xlsx")
 
 @dataclass
 class ModelConfig:

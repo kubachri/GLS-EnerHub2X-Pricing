@@ -5,11 +5,11 @@ from openpyxl import load_workbook
 # === CONFIGURATION ===
 output_path = Path("Scenario_Analysis.xlsx")
 scenario_files = {
-    "Baseline":       "results/Results_Baseline.xlsx",
-    "NoStorageCO2":   "results/Results_NoStorageCO2.xlsx",
-    "NoStorageALL":   "results/Results_NoStorageALL.xlsx",
-    "H2":             "results/Results_H2.xlsx",
-    "CO2Abundance":   "results/Results_CO2Abundance.xlsx"
+    "Baseline":       "results/2019/Results_Baseline.xlsx",
+    "NoStorageCO2":   "results/2019/Results_NoStorageCO2.xlsx",
+    "NoStorageALL":   "results/2019/Results_NoStorageALL.xlsx",
+    "H2Sales":        "results/2019/Results_H2Sales.xlsx",
+    "CO2Abundance":   "results/2019/Results_CO2Abundance.xlsx"
 }
 baseline_path = scenario_files["Baseline"]
 
