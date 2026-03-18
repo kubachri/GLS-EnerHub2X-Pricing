@@ -56,3 +56,7 @@ Notes.txt
 !results/Inputs_H2Sales.xlsx
 !results/Inputs_NoStorageCO2.xlsx
 !results/Inputs_NoStorageALL.xlsx
+
+# Generated analysis outputs
+results/trace_*.csv
+results/CO2_wedge_check_*.csv
