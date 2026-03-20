@@ -8,9 +8,8 @@ scenario_files = {
     "Baseline":       "results/Results_Baseline.xlsx",
     "NoStorageCO2":   "results/Results_NoStorageCO2.xlsx",
     "NoStorageALL":   "results/Results_NoStorageALL.xlsx",
-    "H2":             "results/Results_H2.xlsx",
-    "BioFixed":       "results/Results_BioFixed.xlsx",
-    "CO2Trans":       "results/Results_Transport.xlsx"
+    "H2Sales":        "results/Results_H2Sales.xlsx",
+    "CO2Abundance":   "results/Results_CO2Abundance.xlsx"
 }
 baseline_path = scenario_files["Baseline"]
 
@@ -35,7 +34,7 @@ co2_data = {}
 for name, path in scenario_files.items():
     try:
         df = pd.read_excel(path, sheet_name="Duals", engine="openpyxl")
-        df = df[(df["Area"] == "Skive") & (df["Energy"] == "CO2_Comp")]
+        df = df[(df["Area"] == "Skive") & (df["Energy"] == "CO2_Liq")]
         if not df.empty:
             df["Hour"] = df["Time"].str.extract(r'T(\d+)').astype(int)
             df.set_index("Hour", inplace=True)
