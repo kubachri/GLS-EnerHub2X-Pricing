@@ -11,7 +11,7 @@ from src.model.constraints import add_constraints
 from src.model.objective import define_objective
 
 
-def build_model(cfg: ModelConfig) -> ConcreteModel:
+def build_model(cfg: ModelConfig, final_strategic=False) -> ConcreteModel:
     """
     Build and return the Pyomo model based on the provided configuration.
 
@@ -36,6 +36,26 @@ def build_model(cfg: ModelConfig) -> ConcreteModel:
         data = slice_time_series(data, cfg.n_test)
 
     print("\nAll data loaded.\n")
+
+    # ------------------------------------------------------------------
+    # Implement strategic fuel market prices
+    if final_strategic:
+        if not cfg.strategic:
+            print("Warning: final_strategic=True but cfg.strategic=False.\n")
+
+        area_import = "DK1"  
+        price_co2_external = cfg.co2_market_price
+
+        if 'price_buy' not in data:
+            data['price_buy'] = {}
+        if 'price_sell' not in data:
+            data['price_sell'] = {}
+        for t in data['T']:
+            key = (area_import, cfg.co2_label, t)
+            data['price_buy'][key] = price_co2_external
+            data['price_sell'][key] = 40.0  # Adjust correspondingly to the demand price curve structure (defined in strategic_loop.py)
+
+    # ------------------------------------------------------------------
 
     # 4) Assemble the model
     model = ConcreteModel()
@@ -63,7 +83,12 @@ def build_model(cfg: ModelConfig) -> ConcreteModel:
     define_sets(model, data)
     define_params(model, data, tech_df)
     define_variables(model)
-    add_constraints(model)
+    add_constraints(model, cfg=cfg)
     define_objective(model, cfg=cfg)
+
+    # print("\n[DEBUG] Builder summary:")
+    # print(f" - Strategic mode: {cfg.strategic}")
+    # print(f" - total time steps: {len(model.T)}")
+    # summary = validate_strategic_model(model)
 
     return model

@@ -6,14 +6,15 @@ import numpy as np
 from src.model.sensitivities import apply_sensitivity_overrides
 from src.utils.assign_hours_to_weeks import build_full_year_week_map
 
+
 def load_data(cfg):
     """
     Load all data for the Pyomo model from a single Excel workbook
     NewDataFormat.xlsx located at the project root.
     Returns the same `data` dict shape as before.
     """
-    # Path to the Excel file (assumed in project root)
-    # Choose whether to run a single scenario or multiple scenarios one after the other
+    # Path to the Excel file (defined in config)
+    # Either for a single scenario or a folder of scenarios (multiple scenarios one after the other)
     excel_path = cfg.data_file
 
     if not os.path.isfile(excel_path):
@@ -103,6 +104,9 @@ def load_data(cfg):
         for (t,fuel), v in {**sigma_in, **sigma_out}.items()
         if v != 0
     })
+
+    # print("fuels:", fuels)
+    # print("areas:", areas)
 
 
 
@@ -326,7 +330,8 @@ def load_data(cfg):
                     demand_target[(step, area_fuel)] = float(val)
                 except Exception as e:
                     print(f"⚠ Skipping ({step}, {area_fuel}) → {val}: {e}")
-                    
+
+
     # -----------------------
     # Assemble and return
     # -----------------------

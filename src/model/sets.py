@@ -84,3 +84,22 @@ def define_sets(model, data):
     model.DemandFuel = Set(dimen=2, initialize=demand_target_keys)
     model.DemandSteps = Set(initialize=sorted({step for (step, _) in demand_target_keys}))
     model.Weeks = Set(initialize=sorted(set(data['WeekOfT'].values())))
+
+
+    # --- Strategic subsets for CO2 market behaviour ---
+    # Define subsets only if they exist in data (safe defaults)
+    strategic_suppliers = data.get('StrategicSuppliers', [])
+    strategic_demanders = data.get('StrategicDemanders', [])
+
+    # Defensive: filter against known technologies in model.G
+    if hasattr(model, 'G'):
+        strategic_suppliers = [g for g in strategic_suppliers if g in model.G]
+        strategic_demanders = [g for g in strategic_demanders if g in model.G]
+
+    # Define Pyomo sets (empty if none)
+    model.StrategicSuppliers = Set(initialize=strategic_suppliers, within=model.G, doc="Strategic supplier technologies")
+    model.StrategicDemanders = Set(initialize=strategic_demanders, within=model.G, doc="Strategic demander technologies")
+
+    # # Debug output
+    # print(f"[DEBUG] StrategicSuppliers set created with {len(model.StrategicSuppliers)} elements: {list(model.StrategicSuppliers.data())}")
+    # print(f"[DEBUG] StrategicDemanders set created with {len(model.StrategicDemanders)} elements: {list(model.StrategicDemanders.data())}")

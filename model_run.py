@@ -31,10 +31,12 @@ def parse_args():
     p.add_argument('--el_prod_to_grid', type=float, help="restricts electricity exports to a percent of generation each hour")
     p.add_argument('--multiple_scenarios', action='store_true', help="Run all Excel scenarios in 'scenarios' folder")
     p.add_argument('--data_file', type=str, help="Path to single Excel scenario file")
+    p.add_argument('--strategic', action='store_true', help="Run strategic Cournot loop for CO2")
+    p.add_argument('--co2_market_price', type=float, help="CO2 market price when strategic config is on")
 
     return p.parse_args()
 
-def run_model(cfg, scenario_name=None):
+def run_model(cfg, max_iter=30, scenario_name=None):
     start_time = time.time()
     print("==========================")
     print("Model Run Started")
@@ -42,12 +44,37 @@ def run_model(cfg, scenario_name=None):
     print("==========================\n")
 
     print("Building Pyomo model ...\n")
+
     print("Config values:")
     for key, option in asdict(cfg).items():
         if key == "n_test" and not cfg.test_mode:
             continue
         print(f"{key}: {option}")
 
+    # ------------------------------
+    # Strategic run
+    # ------------------------------
+    if cfg.strategic:
+        from src.strategic.strategic_loop import run_co2_market_equilibrium
+        final_strategic_model, dual_values, results_summary = run_co2_market_equilibrium(cfg, max_iter=max_iter)
+        print("Final strategic model run completed...")
+        
+        print("Exporting final results ...")
+        export_inputs(final_strategic_model, cfg, 
+                      path=f"results/Inputs_{scenario_name}.xlsx"  if scenario_name else None)
+        export_results(final_strategic_model, cfg, 
+                       path=f"results/Results_{scenario_name}.xlsx" if scenario_name else None,
+                       dual_values=dual_values, 
+                       additional_results=results_summary)
+
+        elapsed = time.time() - start_time
+        print(f"Total elapsed time: {elapsed:.2f} seconds")
+
+        return final_strategic_model, dual_values, results_summary
+
+    # ------------------------------
+    # Standard run
+    # ------------------------------
     model = build_model(cfg)
     model.name = 'GreenlabSkive_CK'
     print(f"Model {model.name} built successfully.\n")
@@ -252,6 +279,8 @@ def main():
                 green_electricity=args.green_electricity if args.green_electricity is not None else defaults.green_electricity,
                 electricity_mandate=args.electricity_mandate if args.electricity_mandate is not None else defaults.electricity_mandate,
                 el_prod_to_grid=args.el_prod_to_grid if args.el_prod_to_grid is not None else defaults.el_prod_to_grid,
+                strategic=args.strategic if args.strategic is not None else defaults.strategic,
+                co2_market_price=args.co2_market_price if args.co2_market_price is not None else defaults.co2_market_price,
             )
             run_model(cfg, scenario_name = file.stem.removeprefix("Data_"))
 
@@ -266,6 +295,8 @@ def main():
             electricity_mandate=args.electricity_mandate if args.electricity_mandate is not None else defaults.electricity_mandate,
             el_prod_to_grid=args.el_prod_to_grid if args.el_prod_to_grid is not None else defaults.el_prod_to_grid,
             data_file=args.data_file or defaults.data_file,
+            strategic=args.strategic if args.strategic is not None else defaults.strategic,
+            co2_market_price=args.co2_market_price if args.co2_market_price is not None else defaults.co2_market_price,
         )
 
         scenario_path = Path(cfg.data_file)
