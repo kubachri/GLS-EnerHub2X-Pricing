@@ -84,7 +84,7 @@ def run_model(cfg, max_iter=30, scenario_name=None):
     # 3) Solve the MIP
     solver = SolverFactory('gurobi_persistent')
     solver.set_instance(model, symbolic_solver_labels=True)
-    solver.options['MIPGap'] = 0.05
+    solver.options['MIPGap'] = 0.001
     solver.options['Seed'] = 42
     solver.options['Threads'] = 1
     print("\nSolving MIP …\n")
