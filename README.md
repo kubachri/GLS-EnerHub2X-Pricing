@@ -110,7 +110,7 @@ The model follows a modular structure:
 - data/: Excel data loading, preprocessing, and sensitivity cases
 - model/: Sets, parameters, variables, constraints, and objective
 - utils/: Export tools, diagnostics, and infeasibility analysis
-- model_run.py: Execusion script
+- model_run.py: Execution script
 
 ## Software Requirements
 
