@@ -28,8 +28,14 @@ model_iis.ilp
 !scenarios/
 !scenarios/**/*.xlsx
 
-# Ignore files inside results but keep folder
+# Ignore everything inside results
 results/*
+
+# Allow only specific files
+!results/Results_Baseline.xlsx
+!results/Inputs_Baseline.xlsx
+
+# Keep folder visible even if files are removed
 !results/.gitkeep
 
 # Local / private input data
