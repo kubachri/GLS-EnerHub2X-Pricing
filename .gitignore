@@ -41,11 +41,8 @@ Notes.txt
 *.xlsx
 
 # Allow only tracked scenario input files
-!scenarios/Data_Baseline.xlsx
-!scenarios/Data_CO2Abundance.xlsx
-!scenarios/Data_H2Sales.xlsx
-!scenarios/Data_NoStorageCO2.xlsx
-!scenarios/Data_NoStorageALL.xlsx
+!scenarios/central_planner
+!scenarios/strategic
 
 # Result file
 results/
