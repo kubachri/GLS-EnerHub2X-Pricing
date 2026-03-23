@@ -66,7 +66,11 @@ def volume_final_soc(m, g):
     return m.Volume[g, m.T.last()] == m.soc_init[g]
 
 # 4) Energy balance equations
-def balance_rule(m, a, e, t):
+def balance_rule(m, a, e, t, cfg):
+    # Skip CO2 balance if specified (for methanol submodel in strategic configuration)
+    if getattr(m, "SkipCO2Balance", False) and e == cfg.co2_label:
+        return Constraint.Skip
+
     # 1) GAMS $‐guard: buyE(a,e) OR saleE(a,e) OR any tech at area a with (in or out) of e
     has_buy  = (a,e) in m.buyE
     has_sale = (a,e) in m.saleE
@@ -105,7 +109,7 @@ def balance_rule(m, a, e, t):
     # 4) Assemble the balance
     return buy_term + inflow + generation == fueluse + sale_term + outflow
 
-# # # 5) Demand constraint based on sales + slack
+# # 5) Demand constraint based on sales + slack
 # def demand_time_rule(m, a, e, t):
 #     # 1) GAMS $-guard: only if there is any demand at all for (a,e)
 #     total_area_energy = sum(m.demand[a,e,tt] for tt in m.T)
@@ -287,7 +291,7 @@ def target_demand_rule(m, step, area_fuel):
     )
     return total + m.SlackTarget[step, area_fuel] >= m.DemandTarget[step, area_fuel]
 
-def add_constraints(model):
+def add_constraints(model, cfg):
     model.Fuelmix = Constraint(model.f_in, model.T, rule=fuelmix_rule)
     model.Production = Constraint(model.f_out, model.T, rule=production_rule)
     model.ProductionStorage = Constraint(model.G_s, model.T, rule=storage_balance_rule)
@@ -297,7 +301,7 @@ def add_constraints(model):
     # model.DisChargingStorageMin = Constraint(model.G_s, model.T, rule=discharging_min)
     model.VolumeUpper = Constraint(model.G_s, model.T, rule=volume_upper_rule)
     model.TerminalSOC = Constraint(model.G_s, rule=volume_final_soc)
-    model.Balance = Constraint(model.A, model.F, model.T, rule=balance_rule)
+    model.Balance = Constraint(model.A, model.F, model.T, rule=lambda m,a,e,t: balance_rule(m,a,e,t,cfg))
     model.DemandTime = Constraint(model.DemandSet, rule=demand_time_rule)
     model.MaxBuy = Constraint(model.F, model.T, rule=max_buy_rule)
     model.MaxSale = Constraint(model.F, model.T, rule=max_sale_rule)

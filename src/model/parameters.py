@@ -69,8 +69,8 @@ def define_params(model, data, tech_df):
     model.in_frac  = Param(model.G, model.F, initialize=in_frac, within=NonNegativeReals)
     model.out_frac = Param(model.G, model.F, initialize=out_frac, within=NonNegativeReals)
     model.demand = Param(model.DemandSet, initialize=demand, within=NonNegativeReals)
-    model.price_buy = Param(model.A, model.F, model.T, initialize=price_buy, within=Reals)
-    model.price_sale = Param(model.A, model.F, model.T, initialize=price_sell, within=Reals)
+    model.price_buy = Param(model.A, model.F, model.T, initialize=price_buy, within=Reals, mutable=True)
+    model.price_sale = Param(model.A, model.F, model.T, initialize=price_sell, within=Reals, mutable=True)
     model.InterconnectorCapacity = Param(model.LinesInterconnectors, model.F, model.T,
                                          initialize=Xcap, default= 0, within=NonNegativeReals)
     model.DemandTarget = Param(model.DemandFuel, initialize=demand_target, within=NonNegativeReals)

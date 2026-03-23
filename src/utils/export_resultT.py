@@ -1,13 +1,18 @@
 # src/utils/export_results.py
 
+import math
 import pandas as pd
 from pyomo.environ import value
 from pathlib import Path
 from src.config import ModelConfig
 from collections import defaultdict
+from openpyxl.styles import Font
 import re
 
-def export_results(model, cfg: ModelConfig, path: str = None):
+import logging
+logging.getLogger('pyomo').setLevel(logging.CRITICAL)
+
+def export_results(model, cfg: ModelConfig, path: str = None, dual_values: dict = None, additional_results: pd.DataFrame = None):
     """
     Export GAMS‐style ResultT, ResultF and ResultA tables to Excel,
     plus “ResultTsum”, “ResultFsum” and “ResultAsum” pivoted summaries.
@@ -37,6 +42,8 @@ def export_results(model, cfg: ModelConfig, path: str = None):
     base, suffix, folder = default.stem, default.suffix, default.parent
     if cfg.test_mode:
         base = "test_" + base
+    if cfg.strategic:
+        suffix = suffix.replace(".xlsx", "-strategic.xlsx")
 
     # 2) Common time index
     times = list(model.T)
@@ -51,8 +58,8 @@ def export_results(model, cfg: ModelConfig, path: str = None):
     for g, e in pairs:
         row = {'Result': 'Operation', 'tech': g, 'energy': e}
         for t in times:
-            gen = value(model.Generation[g, e, t]) if (g, e) in model.f_out else 0
-            use = value(model.Fueluse[g, e, t])      if (g, e) in model.f_in  else 0
+            gen = safe_value(model.Generation[g, e, t]) if (g, e) in model.f_out else 0
+            use = safe_value(model.Fueluse[g, e, t])      if (g, e) in model.f_in  else 0
             row[str(t)] = gen - use
         op.append(row)
     df_op = pd.DataFrame(op)
@@ -63,7 +70,7 @@ def export_results(model, cfg: ModelConfig, path: str = None):
         for e in (f for (gg, f) in model.f_out if gg == g):
             row = {'Result': 'Volume', 'tech': g, 'energy': e}
             for t in times:
-                row[str(t)] = value(model.Volume[g, t])
+                row[str(t)] = safe_value(model.Volume[g, t])
             vol.append(row)
     df_vol = pd.DataFrame(vol)
 
@@ -72,8 +79,8 @@ def export_results(model, cfg: ModelConfig, path: str = None):
     for g, e in pairs:
         row = {'Result': 'Costs_EUR', 'tech': g, 'energy': e}
         for t in times:
-            imp_qty  = value(model.Fueluse[g, e, t])    if (g, e) in model.f_in  else 0
-            sale_qty = value(model.Generation[g, e, t]) if (g, e) in model.f_out else 0
+            imp_qty  = safe_value(model.Fueluse[g, e, t])    if (g, e) in model.f_in  else 0
+            sale_qty = safe_value(model.Generation[g, e, t]) if (g, e) in model.f_out else 0
             imp_price  = sum(model.price_buy[a, e, t]  for a in model.A if (a, e) in model.buyE)
             sale_price = sum(model.price_sale[a, e, t] for a in model.A if (a, e) in model.saleE)
             row[str(t)] = imp_qty * imp_price - sale_qty * sale_price
@@ -88,7 +95,7 @@ def export_results(model, cfg: ModelConfig, path: str = None):
     for g in model.G:
         row = {'Result': 'Startcost_EUR', 'tech': g, 'energy': 'system_cost'}
         for t in times:
-            row[str(t)] = value(model.Startcost[g, t])
+            row[str(t)] = safe_value(model.Startcost[g, t])
         start.append(row)
     df_start = pd.DataFrame(start)
 
@@ -99,7 +106,7 @@ def export_results(model, cfg: ModelConfig, path: str = None):
         # Find all exported energies for this technology
         export_fuels = [e for (gg, e) in model.TechToEnergy if gg == g]
         for t in times:
-            gen_sum = sum(value(model.Generation[g, e, t]) for e in export_fuels)
+            gen_sum = sum(safe_value(model.Generation[g, e, t]) for e in export_fuels)
             row[str(t)] = gen_sum * model.cvar[g]
         varom.append(row)
     df_varom = pd.DataFrame(varom)
@@ -140,7 +147,7 @@ def export_results(model, cfg: ModelConfig, path: str = None):
     for ao, ai, f in model.flowset:
         row = {'areaFrom': ao, 'areaTo': ai, 'energy': f}
         for t in times:
-            row[str(t)] = value(model.Flow[ao, ai, f, t])
+            row[str(t)] = safe_value(model.Flow[ao, ai, f, t])
         flows.append(row)
     df_F = pd.DataFrame(flows)
     df_F.sort_values(['areaFrom','areaTo','energy'], inplace=True)
@@ -191,8 +198,8 @@ def export_results(model, cfg: ModelConfig, path: str = None):
             row = {'Result': res, 'area': a, 'energy': e}
             for t in times:
                 row[str(t)] = (
-                    value(model.Buy[a, e, t]) if res == 'Buy'
-                    else value(model.Sale[a, e, t])
+                    safe_value(model.Buy[a, e, t]) if res == 'Buy'
+                    else safe_value(model.Sale[a, e, t])
                 )
             A_rows.append(row)
 
@@ -217,7 +224,7 @@ def export_results(model, cfg: ModelConfig, path: str = None):
         for a, e in sel:
             row = {'Result': res, 'area': a, 'energy': e}
             for t in times:
-                row[str(t)] = price_param[a, e, t]
+                row[str(t)] = safe_value(price_param[a, e, t])
             A_rows.append(row)
 
     # 6) Buy_EUR & 7) Sale_EUR
@@ -229,11 +236,11 @@ def export_results(model, cfg: ModelConfig, path: str = None):
             row = {'Result': res, 'area': a, 'energy': e}
             for t in times:
                 qty   = (
-                    value(model.Buy[a, e, t])
+                    safe_value(model.Buy[a, e, t])
                     if res == 'Buy_EUR'
-                    else value(model.Sale[a, e, t])
+                    else safe_value(model.Sale[a, e, t])
                 )
-                price = price_param[a, e, t]
+                price = safe_value(price_param[a, e, t])
                 row[str(t)] = qty * price
             A_rows.append(row)
 
@@ -310,10 +317,14 @@ def export_results(model, cfg: ModelConfig, path: str = None):
     # --- Duals sheet: 1) hourly CO2, 2) weekly methanol duals ---
     # 1) Hourly CO2 duals
     co2_rows = []
+    co2_label = cfg.co2_label
     for (area, energy, t) in model.Balance.index_set():
-        if energy == 'CO2_Liq' and area == 'Skive':
-            con       = model.Balance[area, energy, t]
-            dual_val  = model.dual.get(con, 0.0)
+        if energy == co2_label and area == 'Skive':
+            if cfg.strategic:
+                dual_val = dual_values[co2_label][t] if co2_label in dual_values and t in dual_values[co2_label] else float("nan")
+            else:
+                con   = model.Balance[area, energy, t]
+                dual_val  = model.dual.get(con, 0.0)
             co2_rows.append({
                 'Area':   area,
                 'Energy': energy,
@@ -325,7 +336,7 @@ def export_results(model, cfg: ModelConfig, path: str = None):
     # for t in times:
     #     row = {'Time': str(t)}
     #     for area in ['Skive']:
-    #         idx = (area, 'CO2', t)
+    #         idx = (area, cfg.co2_label, t)
     #         if idx in model.Balance.index_set():
     #             dual_val = model.dual.get(model.Balance[idx], 0.0)
     #         else:
@@ -344,8 +355,11 @@ def export_results(model, cfg: ModelConfig, path: str = None):
 
         dual_rows = []
         for (step, af) in sorted(model.DemandFuel, key=sort_key):
-            constraint = model.TargetDemand[step, af]
-            dual_val = model.dual.get(constraint, float("nan"))  # NaN if no dual
+            if cfg.strategic:
+                dual_val = dual_values[af][step] if af in dual_values and step in dual_values[af] else float("nan")
+            else:
+                constraint = model.TargetDemand[step, af]
+                dual_val = model.dual.get(constraint, float("nan"))  # NaN if no dual
             dual_rows.append({
                 "Step": step,
                 "Area.Fuel": af,
@@ -359,10 +373,10 @@ def export_results(model, cfg: ModelConfig, path: str = None):
     # ----------------------------------------------------------------
     C_rows = []
     for tech,fuel in model.TechToEnergy:
-        cap = value(model.original_capacity[tech])
+        cap = safe_value(model.original_capacity[tech])
         row = {'Result': 'CapacityFactor', 'tech': tech}
         for t in times:
-            gen= value(model.Generation[tech, fuel, t])
+            gen= safe_value(model.Generation[tech, fuel, t])
             row[str(t)] = gen / cap if cap != 0 else 0
         C_rows.append(row)
 
@@ -371,9 +385,9 @@ def export_results(model, cfg: ModelConfig, path: str = None):
     summary_cf = []
     summary_flh = []
     for tech,fuel in model.TechToEnergy:
-        cap = value(model.original_capacity[tech])
+        cap = safe_value(model.original_capacity[tech])
         total_gen = sum(
-            value(model.Generation[tech, fuel, t]) 
+            safe_value(model.Generation[tech, fuel, t]) 
             for t in times
         )
         avg_cf = total_gen / (cap * ntimes) if cap != 0 else 0
@@ -396,7 +410,7 @@ def export_results(model, cfg: ModelConfig, path: str = None):
     #  a) Fuel imports (“Buy_…”) are costs → negative contributions
     for (a, e) in model.buyE:
         tot = sum(
-            value(model.price_buy[a, e, t] * model.Buy[a, e, t])
+            safe_value(model.price_buy[a, e, t] * model.Buy[a, e, t])
             for t in times
         )
         decomp.append({
@@ -407,7 +421,7 @@ def export_results(model, cfg: ModelConfig, path: str = None):
     #  b) Fuel sales (“Sell_…”) are revenues → positive
     for (a, e) in model.saleE:
         tot = sum(
-            value(model.price_sale[a, e, t] * model.Sale[a, e, t])
+            safe_value(model.price_sale[a, e, t] * model.Sale[a, e, t])
             for t in times
         )
         decomp.append({
@@ -427,7 +441,7 @@ def export_results(model, cfg: ModelConfig, path: str = None):
     varom_by_tech = defaultdict(float)
     for (g, e) in model.TechToEnergy:
         for t in times:
-            varom_by_tech[g] += value(model.Generation[g, e, t]) * model.cvar[g]
+            varom_by_tech[g] += safe_value(model.Generation[g, e, t]) * model.cvar[g]
 
     # Append each tech's contribution to decomposition
     for g, val in varom_by_tech.items():
@@ -438,7 +452,7 @@ def export_results(model, cfg: ModelConfig, path: str = None):
 
     #  d) Startup costs
     tot_start = sum(
-        value(model.Startcost[g, t])
+        safe_value(model.Startcost[g, t])
         for g in model.G
         for t in times
     )
@@ -449,13 +463,13 @@ def export_results(model, cfg: ModelConfig, path: str = None):
     for (a, e, t) in model.DemandSet:
         var = model.SlackDemandImport[a, e, t]
         if var.value is not None:
-            tot_slack_imp += value(var)
+            tot_slack_imp += safe_value(var)
 
     tot_slack_exp = 0.0
     for (a, e, t) in model.DemandSet:
         var = model.SlackDemandExport[a, e, t]
         if var.value is not None:
-            tot_slack_exp += value(var)
+            tot_slack_exp += safe_value(var)
 
     penalty = cfg.penalty
 
@@ -476,7 +490,7 @@ def export_results(model, cfg: ModelConfig, path: str = None):
     for (step, af) in model.DemandFuel:
         var = model.SlackTarget[step, af]
         if var.value is not None:
-            fuel_slack_totals[af] += value(var)
+            fuel_slack_totals[af] += safe_value(var)
 
     for af, slack_val in fuel_slack_totals.items():
         decomp.append({
@@ -489,7 +503,7 @@ def export_results(model, cfg: ModelConfig, path: str = None):
         })
 
     # Add TotalCost as the sum of all contributions
-    total_profit = sum(entry["Contribution"] for entry in decomp)
+    total_profit = sum(entry["Contribution"] for entry in decomp if not math.isnan(entry["Contribution"]))
     decomp.append({
         "Element": "TotalProfit",
         "Contribution": total_profit
@@ -546,6 +560,18 @@ def export_results(model, cfg: ModelConfig, path: str = None):
                 # 10) Objective function decomposition
                 df_decomp.to_excel(writer, sheet_name="ObjDecomp", index=False)
 
+                # 11) Additional results (e.g., strategic supplier results)
+                if additional_results is not None:
+                    for i, df in enumerate(additional_results):
+                        sheet_name = f"AdditionalResults_{i+1}"
+                        df.to_excel(writer, sheet_name=sheet_name, index=True)
+
+                    # # Bold the last row of the first sheet (last iteration - convergence)
+                    # ws = writer.book[f"AdditionalResults_1"]
+                    # last_row = ws.max_row  # includes header, index handled automatically
+                    # for cell in ws[last_row]:
+                    #     cell.font = Font(bold=True)
+
             break
 
         except PermissionError:
@@ -559,3 +585,10 @@ def export_results(model, cfg: ModelConfig, path: str = None):
     print(f"File: {output.resolve()}")
 
 
+
+
+def safe_value(v, default=math.nan):
+    try:
+        return value(v)
+    except ValueError:
+        return default

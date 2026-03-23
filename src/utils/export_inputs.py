@@ -15,6 +15,8 @@ def export_inputs(model, cfg, path: str = None):
         filename = "Inputs.xlsx"
         if cfg.test_mode:
             filename = "test_" + filename
+        if cfg.strategic:
+            filename = filename.replace(".xlsx", "-strategic.xlsx")
         out = project_root / "results" / filename
     else:
         out = Path(path)

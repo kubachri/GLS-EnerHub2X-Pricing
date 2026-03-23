@@ -5,58 +5,44 @@ __pycache__/
 # 2. IDE/project files
 .idea/
 
-# 3. Personal outputs, data, logs, etc.
+# Logs
 *.log
 
-# IntelliJ / PyCharm project files
-.idea/
-
-# Linear‐program files
+# Linear program files
 *.lp
 
 extremes.csv
-
 model_iis.ilp
 
+# Figures
 *.pdf
+*.png
 
 # macOS junk
 .DS_Store
 
-# Generated results
-EnerHub2X/results/
+# Ignore all Excel files everywhere
+*.xlsx
+
+# BUT allow Excel files in scenarios
+!scenarios/
+!scenarios/**/*.xlsx
+
+# Ignore everything inside results
+results/*
+
+# Allow only specific files
+!results/Results_Baseline.xlsx
+!results/Inputs_Baseline.xlsx
+
+# Keep folder visible even if files are removed
+!results/.gitkeep
 
 # Local / private input data
 InputData/
 
-# Exploratory / analysis notebooks
+# Notebooks
 src/utils/results_analysis.ipynb
 
 # Notes
 Notes.txt
-
-# Ignore all Excel files by default
-*.xlsx
-
-# Allow only tracked scenario input files
-!scenarios/Data_Baseline.xlsx
-!scenarios/Data_CO2Abundance.xlsx
-!scenarios/Data_H2Sales.xlsx
-!scenarios/Data_NoStorageCO2.xlsx
-!scenarios/Data_NoStorageALL.xlsx
-
-# Allow results files for tracked scenarios
-!results/Results_Baseline.xlsx
-!results/Results_CO2Abundance.xlsx
-!results/Results_H2Sales.xlsx
-!results/Results_NoStorageCO2.xlsx
-!results/Results_NoStorageALL.xlsx
-!results/Inputs_Baseline.xlsx
-!results/Inputs_CO2Abundance.xlsx
-!results/Inputs_H2Sales.xlsx
-!results/Inputs_NoStorageCO2.xlsx
-!results/Inputs_NoStorageALL.xlsx
-
-# Generated analysis outputs
-results/trace_*.csv
-results/CO2_wedge_check_*.csv
