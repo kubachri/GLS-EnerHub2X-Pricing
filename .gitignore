@@ -20,6 +20,8 @@ model_iis.ilp
 
 *.pdf
 
+*.png
+
 # macOS junk
 .DS_Store
 
@@ -45,18 +47,5 @@ Notes.txt
 !scenarios/Data_NoStorageCO2.xlsx
 !scenarios/Data_NoStorageALL.xlsx
 
-# Allow results files for tracked scenarios
-!results/Results_Baseline.xlsx
-!results/Results_CO2Abundance.xlsx
-!results/Results_H2Sales.xlsx
-!results/Results_NoStorageCO2.xlsx
-!results/Results_NoStorageALL.xlsx
-!results/Inputs_Baseline.xlsx
-!results/Inputs_CO2Abundance.xlsx
-!results/Inputs_H2Sales.xlsx
-!results/Inputs_NoStorageCO2.xlsx
-!results/Inputs_NoStorageALL.xlsx
-
-# Generated analysis outputs
-results/trace_*.csv
-results/CO2_wedge_check_*.csv
+# Result file
+results/
