@@ -38,7 +38,7 @@ for name, path in scenario_files.items():
         if not df.empty:
             df["Hour"] = df["Time"].str.extract(r'T(\d+)').astype(int)
             df.set_index("Hour", inplace=True)
-            co2_data[name] = -df["Dual"]
+            co2_data[name] = df["Dual"]
     except Exception as e:
         print(f"❌ CO2Duals: {name} failed - {e}")
 
@@ -53,7 +53,7 @@ for name, path in scenario_files.items():
         df = df[df["Area.Fuel"] == "DK1.Methanol"].copy()
         df["Week"] = df["Step"].str.extract(r'Target(\d+)').astype(int)
         df.set_index("Week", inplace=True)
-        methanol_data[name] = df["Dual Value"]
+        methanol_data[name] = -df["Dual Value"]
     except Exception as e:
         print(f"❌ MethanolMarginal: {name} failed - {e}")
 
